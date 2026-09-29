@@ -1229,7 +1229,12 @@ class CheckCompositorTests(unittest.TestCase):
 
     # The access token (on by default): read from the file endpoint.json names, sent as a Bearer header.
 
-    TOKEN = "x" * 43  # 43 base64url characters, made up for these tests
+    TOKEN = "".join(
+        "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_"[
+            (index * 17 + 11) % 64
+        ]
+        for index in range(43)
+    )  # 43 base64url characters, made up for these tests
 
     def write_token(self, name="token", mode=0o600, text=None):
         path = self.endpoint_file.parent / name

@@ -40,7 +40,8 @@ struct CompositorLogTests {
     @Test func credentialsAndImageDataNeverReachTheFile() throws {
         let harness = LogHarness()
         defer { harness.remove() }
-        let token = String(repeating: "x", count: 43) // 43 base64url characters, the access token's shape
+        let tokenAlphabet = Array("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_")
+        let token = String((0..<43).map { tokenAlphabet[($0 * 17 + 11) % tokenAlphabet.count] }) // 43 base64url characters, the access token's shape
         let base64Image = String(repeating: "iVBORw0KGgoAAAANSUhEUgAA", count: 200)
         harness.log.info(.mcp, "tool_call", [
             "token": .string(token),
