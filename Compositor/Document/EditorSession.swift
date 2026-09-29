@@ -5,6 +5,8 @@ struct ImageLayer: Identifiable, Equatable {
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.id == rhs.id && lhs.name == rhs.name && lhs.isVisible == rhs.isVisible && lhs.transform == rhs.transform
             && lhs.asset?.image === rhs.asset?.image && lhs.parentID == rhs.parentID && lhs.isGroup == rhs.isGroup && lhs.opacity == rhs.opacity && lhs.blendMode == rhs.blendMode && lhs.mask == rhs.mask && lhs.maskSourceID == rhs.maskSourceID && lhs.adjustment == rhs.adjustment && lhs.shape == rhs.shape && lhs.text == rhs.text && lhs.effects == rhs.effects
+            && lhs.locks == rhs.locks && lhs.fillOpacity == rhs.fillOpacity && lhs.psdExtras == rhs.psdExtras
+            && lhs.smartObject == rhs.smartObject
     }
     let id: UUID
     var asset: ImportedImage?
@@ -24,7 +26,20 @@ struct ImageLayer: Identifiable, Equatable {
     /// A stroke and drop shadow drawn around the layer, kept apart from its pixels.
     var effects: LayerEffects?
     var text: LayerText?
+    /// Photoshop's layer locks, kept and written back. A position lock keeps the layer from moving; a pixel lock
+    /// keeps painting, fills and filters off its pixels (see LayerLocks.swift).
+    var locks: LayerLocks = []
+    /// Photoshop's Fill: the opacity of the layer's own pixels, apart from `opacity`, which also covers its effects.
+    var fillOpacity: Double = 1
+    /// What a Photoshop file held for this layer beyond what Compositor models, kept to be written back.
+    var psdExtras: PSDLayerExtras?
+    /// A smart object's contents and placement. The layer shows pixels drawn from them; a destructive pixel edit
+    /// leaves the pixels and drops the smart object.
+    var smartObject: LayerSmartObject?
     nonisolated var size: CGSize { transform.size }
+    /// A Photoshop layer Compositor can't show (an unsupported adjustment, say), kept hidden and without pixels
+    /// only so it can be written back. It can't be painted on.
+    var isPhotoshopPlaceholder: Bool { psdExtras?.placeholder != nil }
 
     init(asset: ImportedImage, origin: CGPoint) {
         self.id = UUID()
@@ -40,7 +55,7 @@ struct ImageLayer: Identifiable, Equatable {
         self.name = name
     }
 
-    init(id: UUID, asset: ImportedImage?, name: String, isVisible: Bool, transform: LayerTransform, parentID: UUID? = nil, isGroup: Bool = false, opacity: Double = 1, blendMode: LayerBlendMode = .normal, mask: LayerMask? = nil, maskSourceID: UUID? = nil, adjustment: LayerAdjustment? = nil, shape: LayerShape? = nil, effects: LayerEffects? = nil, text: LayerText? = nil) {
+    init(id: UUID, asset: ImportedImage?, name: String, isVisible: Bool, transform: LayerTransform, parentID: UUID? = nil, isGroup: Bool = false, opacity: Double = 1, blendMode: LayerBlendMode = .normal, mask: LayerMask? = nil, maskSourceID: UUID? = nil, adjustment: LayerAdjustment? = nil, shape: LayerShape? = nil, effects: LayerEffects? = nil, text: LayerText? = nil, locks: LayerLocks = [], fillOpacity: Double = 1, psdExtras: PSDLayerExtras? = nil, smartObject: LayerSmartObject? = nil) {
         self.id = id
         self.asset = asset
         self.name = name
@@ -56,7 +71,16 @@ struct ImageLayer: Identifiable, Equatable {
         self.shape = shape
         self.effects = effects
         self.text = text
+        self.locks = locks
+        self.fillOpacity = fillOpacity
+        self.psdExtras = psdExtras
+        self.smartObject = smartObject
     }
+}
+
+/// The file format a document saves in.
+nonisolated enum ProjectFileFormat: String, Codable, Sendable {
+    case comp, psd
 }
 
 struct CanvasDocument: Equatable {
@@ -69,6 +93,8 @@ struct CanvasDocument: Equatable {
     var guides: [CanvasGuide] = []
     /// Part of the document so undo/redo covers selection changes. Not saved to disk.
     var selection: DocumentSelection?
+    /// What the Photoshop file this document came from held beyond its layers, kept to be written back.
+    var psdExtras: PSDDocumentExtras?
     var size: CGSize { CGSize(width: width, height: height) }
     init(id: UUID = UUID(), width: Int, height: Int, layers: [ImageLayer] = [], resolution: Double = 72, guides: [CanvasGuide] = []) {
         self.id = id
@@ -107,22 +133,25 @@ final class EditorSession {
     var showsSampleRing = true
     var adjustmentOriginal: LayerAdjustment?
     var adjustmentEditingID: UUID? { didSet { resumeFileRequests() } }
+    /// The open Profile browser, while a Profile layer is being edited.
+    var profileEdit: ProfileEdit?
     /// The layer whose effects panel is open.
     var effectsEditing: LayerEffectSelection?
     var effectsEditingOriginal: LayerEffects?
     var effectSelection: LayerEffectSelection?
     @ObservationIgnored var effectsPreviews = EffectsPreviewCache()
     var projectURL: URL?
+    /// The format a plain Save writes: `.comp` unless the document was opened from (or saved as) a Photoshop file.
+    var documentFormat: ProjectFileFormat = .comp
+    /// The file a Photoshop or image document was opened from. `projectURL` stays nil until the first save, so ⌘S
+    /// never silently overwrites a client's template.
+    var sourceURL: URL?
     /// Blocks overlapping edits immediately. Not observed by the UI: controls only dim via
     /// `showsBusy`, after an operation has run long enough to be worth showing, so quick
     /// edits (invert, fills, stroke commits) never flash the interface.
     @ObservationIgnored var isProjectBusy = false {
         didSet {
-            if !isProjectBusy {
-                let waiters = projectWaiters
-                projectWaiters.removeAll()
-                for waiter in waiters { waiter.resume() }
-            }
+            if !isProjectBusy { resumeProjectWaiters() }
             resumeFileRequests()
             updateBusyIndicator()
         }
@@ -150,8 +179,21 @@ final class EditorSession {
     private var fileRequestWaiters: [CheckedContinuation<Void, Never>] = []
     var canStartProjectOperation: Bool {
         _ = showsBusy // Re-evaluate in the UI when a long operation starts or ends.
-        return selectionAmountOperation == nil && colorRange == nil && textDraft == nil && !isProjectBusy && !isImporting && brushStroke == nil && warpStroke == nil && levels == nil && !showsNewDocument && !showsImporter && renamingLayerID == nil && importError == nil && adjustmentEditingID == nil && !showsConversionSheet
+        return selectionAmountOperation == nil && colorRange == nil && textDraft == nil && !isProjectBusy && !isImporting && brushStroke == nil && warpStroke == nil && levels == nil && !showsNewDocument && !showsImporter && renamingLayerID == nil && importError == nil && adjustmentEditingID == nil && !showsConversionSheet && !isHeldByAgentBatch
     }
+    /// An agent's run_batch holds this document's undo history: its steps nest in one open edit, and a failure may
+    /// roll the document back to where it began. The app's own edits, undo and project operations wait until it
+    /// ends (`isHeldByAgentBatch` turns their gates off), so none is folded into the batch's step or lost to its
+    /// rollback. Set by `beginAgentBatch` and `endAgentBatch`.
+    private(set) var agentBatchHoldsHistory = false {
+        didSet {
+            if !agentBatchHoldsHistory { resumeProjectWaiters() }
+            resumeFileRequests()
+        }
+    }
+    /// Edits begun outside the batch's steps while it held the history: commands whose own guards let them through.
+    /// The batch stops when this moves, and never rolls back over them.
+    @ObservationIgnored private(set) var appEditsDuringAgentBatch = 0
     func waitForFileRequest() async {
         while !canStartProjectOperation {
             await withCheckedContinuation { fileRequestWaiters.append($0) }
@@ -163,17 +205,25 @@ final class EditorSession {
         fileRequestWaiters.removeAll()
         for waiter in waiters { waiter.resume() }
     }
+    /// Waits until no long operation runs (`isProjectBusy`) and no agent's batch holds the history
+    /// (`isHeldByAgentBatch`), so an import the app starts, such as an image dropped on a tab that isn't showing, never
+    /// opens its edit inside a batch's step.
     func waitForProjectAccess() async {
-        while isProjectBusy {
+        while isProjectBusy || isHeldByAgentBatch {
             await withCheckedContinuation { projectWaiters.append($0) }
         }
+    }
+    private func resumeProjectWaiters() {
+        let waiters = projectWaiters
+        projectWaiters.removeAll()
+        for waiter in waiters { waiter.resume() }
     }
     var viewport = CanvasViewport()
     var tool: NavigationTool = .move
     var collapsedGroupIDs: Set<UUID> = []
     var cropRect: CGRect?
     var cropRatioChoice = "Free"
-    var cropError: String?
+    var cropError: String? { didSet { AppLog.userError("crop", cropError) } }
     var transformEdit: TransformEdit?
     @ObservationIgnored var distortPreviewCache: [UUID: DistortPreviewCache] = [:]
     @ObservationIgnored var distortEffectsCache: [UUID: DistortEffectsCache] = [:]
@@ -247,6 +297,9 @@ final class EditorSession {
     @ObservationIgnored var selectionMoveOrigin: DocumentSelection?
     var pixelMove: PixelMove?
     @ObservationIgnored var pixelClipboard: PixelClipboard?
+    /// The pasteboard Copy writes and Paste reads (`SelectionClipboard`): the system's, except in a test host (see
+    /// `defaultPasteboard`). A test can give a session one of its own.
+    @ObservationIgnored var pasteboard: NSPasteboard = EditorSession.defaultPasteboard
     @ObservationIgnored var copiedLayer: CopiedLayer?
     var levels: LevelsEdit? { didSet { resumeFileRequests() } }
     var hueSaturation: HueSaturationEdit?
@@ -313,7 +366,7 @@ final class EditorSession {
     var selectionContractAmount = 1
     @ObservationIgnored var pendingOpacityDigit: (digit: Int, time: TimeInterval)?
     var colorPicker: ColorPickerState?
-    var brushError: String?
+    var brushError: String? { didSet { AppLog.userError("paint", brushError) } }
     var brushRevision = 0
     /// Not observed by the UI, so controls don't dim for the length of every stroke;
     /// a stroke keeps the settings it started with, so edits made mid-stroke are harmless.
@@ -322,10 +375,26 @@ final class EditorSession {
     @ObservationIgnored var warpStroke: WarpStroke? { didSet { resumeFileRequests() } }
 
     var canTransform: Bool {
-        guard canEditLayers else { return false }
-        // Several selected layers, or a folder's contents, transform together.
-        if transformsAsGroup { return !groupTransformMembers.isEmpty }
-        return activeLayer?.asset != nil && activeLayer?.isGroup == false && activeLayerID.map { document?.effectiveVisibleIDs.contains($0) == true } == true
+        guard let targets = transformTargets else { return false }
+        // Several selected layers, or a folder's contents, transform together — none of them if one is locked in
+        // place, as Photoshop refuses the move.
+        return !isPositionLocked(targets)
+    }
+    /// Whether a position lock (a layer's own or a folder's around it) is what keeps the active layer, or the layers
+    /// moving with it, from being moved or transformed. The app beeps when one refuses a move.
+    var isTransformPositionLocked: Bool { transformTargets.map(isPositionLocked) ?? false }
+    /// What a transform would move if no lock held it: the group's members, or the active layer. Nil when there is
+    /// nothing to transform.
+    private var transformTargets: [UUID]? {
+        guard canEditLayers else { return nil }
+        if transformsAsGroup {
+            let members = groupTransformMembers
+            return members.isEmpty ? nil : members.map(\.id)
+        }
+        guard let layer = activeLayer, layer.asset != nil, !layer.isGroup, document?.effectiveVisibleIDs.contains(layer.id) == true else {
+            return nil
+        }
+        return [layer.id]
     }
     /// Several layers selected, or a folder: the transform moves them (a folder, everything in it) together in one box.
     var transformsAsGroup: Bool { selectedLayerIDs.count > 1 || (selectedLayerIDs.count == 1 && activeLayer?.isGroup == true) }
@@ -534,20 +603,50 @@ final class EditorSession {
         if let group = edit.group { return group.originals[layer.id].map { $0.following(from: group.box, to: edit.draft) } }
         return edit.layerID == layer.id ? edit.draft : nil
     }
-    func nudgeLayer(dx: CGFloat, dy: CGFloat) {
+    /// Arrow keys with the Move tool: moves the active layer (or what transforms with it) by `dx`, `dy`. False when
+    /// nothing could move; the app beeps then when a position lock is why (`isTransformPositionLocked`).
+    @discardableResult
+    func nudgeLayer(dx: CGFloat, dy: CGFloat) -> Bool {
         let alreadyEditing = transformEdit != nil
         if !alreadyEditing { beginTransform(persistent: false) }
-        guard var value = transformEdit?.draft else { return }
+        guard var value = transformEdit?.draft else { return false }
         value.origin.x += dx
         value.origin.y += dy
         previewTransform(value)
         if let corners = transformEdit?.corners { previewCorners(corners.map { CGPoint(x: $0.x + dx, y: $0.y + dy) }) }
         if !alreadyEditing { commitTransform() }
+        return true
+    }
+    /// Moves layers (folders take their descendants) by an offset; mask placements follow. One undo step.
+    /// Nothing moves when the offset is zero or would take any of them past the ±1,000,000 pixel limit.
+    func translateLayers(_ ids: Set<UUID>, by offset: CGPoint, name: String = "Move Layer") {
+        commitTransform()
+        guard canEditLayers, let document, offset != .zero, offset.x.isFinite, offset.y.isFinite else { return }
+        let moved = ids.reduce(into: ids) { $0.formUnion(descendantIDs(of: $1)) }
+        var changes: [(index: Int, transform: LayerTransform)] = []
+        for index in document.layers.indices where moved.contains(document.layers[index].id) {
+            var transform = document.layers[index].transform
+            transform.origin.x += offset.x
+            transform.origin.y += offset.y
+            guard transform.isValid else { return }
+            changes.append((index, transform))
+        }
+        guard !changes.isEmpty else { return }
+        finishOpacityEdit()
+        beginEdit(name)
+        for change in changes {
+            let layer = document.layers[change.index]
+            if let mask = layer.mask {
+                self.document?.layers[change.index].mask?.placement = mask.placement(movingLayer: layer.transform, to: change.transform)
+            }
+            self.document?.layers[change.index].transform = change.transform
+        }
+        endEdit()
     }
     var showsNewDocument = false { didSet { resumeFileRequests() } }
     var showsImporter = false { didSet { resumeFileRequests() } }
     var isImporting = false { didSet { resumeFileRequests() } }
-    var importError: String? { didSet { resumeFileRequests() } }
+    var importError: String? { didSet { resumeFileRequests(); AppLog.userError("import", importError) } }
     var showsConversionSheet = false { didSet { resumeFileRequests() } }
     var conversionRequest: PSDConversionRequest?
     /// Tests assign this to skip the conversion sheet.
@@ -561,7 +660,7 @@ final class EditorSession {
 
     /// Puts the develop sheet up and waits for the choice; nil means the import was cancelled.
     func developRaw(_ url: URL) async -> RawDevelopSettings? {
-        let asShot = RawImporter.asShot(url) ?? RawDevelopSettings()
+        let asShot = await FileProbe.rawAsShot(url) ?? RawDevelopSettings()
         if let confirmRawDevelop { return await confirmRawDevelop(url, asShot) }
         return await withCheckedContinuation { continuation in
             rawContinuation = continuation
@@ -602,9 +701,11 @@ final class EditorSession {
     var renamingLayerID: UUID? { didSet { resumeFileRequests() } }
     let history = DocumentHistory()
     var isModified: Bool { history.isModified }
+    /// Undo, redo and an agent's run_batch may move through or record into the history: nothing in progress would
+    /// record into it when it ends. A guide drag counts: it records "New Guide" or "Move Guide" when the mouse goes up.
     var canUseHistory: Bool {
         _ = showsBusy
-        return selectionAmountOperation == nil && colorRange == nil && textDraft == nil && !isProjectBusy && !isImporting && brushStroke == nil && warpStroke == nil && levels == nil && !showsNewDocument && !showsImporter && renamingLayerID == nil && importError == nil && transformEdit == nil && !showsConversionSheet
+        return selectionAmountOperation == nil && colorRange == nil && textDraft == nil && !isProjectBusy && !isImporting && brushStroke == nil && warpStroke == nil && levels == nil && !showsNewDocument && !showsImporter && renamingLayerID == nil && importError == nil && transformEdit == nil && guideDrag == nil && !showsConversionSheet && !isHeldByAgentBatch
     }
     var canUndo: Bool { canUseHistory && (history.canUndo || gradientEdit != nil) }
     var canRedo: Bool { canUseHistory && history.canRedo }
@@ -634,14 +735,45 @@ final class EditorSession {
 
     /// Nestable transaction boundary; future tools can group a complete gesture.
     func beginEdit(_ name: String) {
+        if isHeldByAgentBatch { appEditsDuringAgentBatch += 1 }
         history.begin(name, document: document, selection: activeLayerID)
+    }
+
+    /// True for code running as a step of an agent's batch (a task-local value run_batch sets around each step, so
+    /// it reaches whatever the step awaits but never the app's own event handling).
+    @TaskLocal static var runsAgentBatchStep = false
+
+    /// The app must wait: an agent's batch holds the history (`agentBatchHoldsHistory`) and this isn't one of its steps.
+    var isHeldByAgentBatch: Bool { agentBatchHoldsHistory && !Self.runsAgentBatchStep }
+
+    /// Marks the history held by an agent's batch, from just after it opens its edit.
+    func beginAgentBatch() {
+        appEditsDuringAgentBatch = 0
+        agentBatchHoldsHistory = true
+    }
+
+    func endAgentBatch() {
+        agentBatchHoldsHistory = false
     }
 
     func endEdit() { history.end(document: document, selection: activeLayerID) }
     var activeLayer: ImageLayer? { document?.layers.first { $0.id == activeLayerID } }
     var canEditLayers: Bool {
         _ = showsBusy
-        return selectionAmountOperation == nil && colorRange == nil && textDraft == nil && document != nil && brushStroke == nil && warpStroke == nil && !isProjectBusy && !isImporting && !showsNewDocument && !showsImporter && renamingLayerID == nil && transformEdit == nil && cropRect == nil && gradientEdit == nil && pixelMove == nil && hueSaturation == nil && levels == nil && filterEdit == nil && adjustmentEditingID == nil
+        return selectionAmountOperation == nil && colorRange == nil && textDraft == nil && document != nil && brushStroke == nil && warpStroke == nil && !isProjectBusy && !isImporting && !showsNewDocument && !showsImporter && renamingLayerID == nil && transformEdit == nil && cropRect == nil && gradientEdit == nil && pixelMove == nil && hueSaturation == nil && levels == nil && filterEdit == nil && adjustmentEditingID == nil && !isHeldByAgentBatch
+    }
+
+    /// Where a new layer goes among `layers` (the document's layers, less one being moved) to sit directly above
+    /// `active`, or, when `active` is a folder, at the top of it: just above its topmost contents, however deep. The
+    /// top of the stack when no layer is active. The one rule New Blank Layer, Place Smart Object and the agent's
+    /// add_image_layer place a new layer by.
+    func insertionIndex(above active: UUID?, in layers: [ImageLayer]) -> Int {
+        var insertion = layers.firstIndex { $0.id == active }.map { $0 + 1 } ?? layers.count
+        if let folder = active, layers.first(where: { $0.id == folder })?.isGroup == true {
+            let inside = descendantIDs(of: folder)
+            if let topmost = layers.lastIndex(where: { inside.contains($0.id) }) { insertion = max(insertion, topmost + 1) }
+        }
+        return insertion
     }
 
     func addBlankLayer() {
@@ -652,22 +784,7 @@ final class EditorSession {
         var layer = ImageLayer(name: "Layer \(number)", blankSize: document.size)
         layer.parentID = activeLayer?.isGroup == true ? activeLayerID : activeLayer?.parentID
         if let parent = layer.parentID { collapsedGroupIDs.remove(parent) }
-        var insertion = document.layers.firstIndex { $0.id == activeLayerID }.map { $0 + 1 } ?? document.layers.count
-        // With a folder selected the layer goes to the top of the folder: just above its last (topmost) contents.
-        if activeLayer?.isGroup == true, let folder = activeLayerID {
-            let parents = Dictionary(uniqueKeysWithValues: document.layers.map { ($0.id, $0.parentID) })
-            func isInside(_ id: UUID) -> Bool {
-                var parent = parents[id] ?? nil
-                var steps = 0
-                while let current = parent, steps < 64 {
-                    if current == folder { return true }
-                    parent = parents[current] ?? nil
-                    steps += 1
-                }
-                return false
-            }
-            if let topmost = document.layers.lastIndex(where: { isInside($0.id) }) { insertion = max(insertion, topmost + 1) }
-        }
+        let insertion = insertionIndex(above: activeLayerID, in: document.layers)
         beginEdit("New Blank Layer")
         defer { endEdit() }
         self.document?.layers.insert(layer, at: insertion)
@@ -675,7 +792,7 @@ final class EditorSession {
     }
 
     func deleteLayer(_ id: UUID) {
-        guard canEditLayers, document?.layers.contains(where: { $0.id == id }) == true else { return }
+        guard canEditLayers, document?.layers.contains(where: { $0.id == id }) == true, deletionUnlocked([id]) else { return }
         guard !deleteWithLiveMaskChoice(id) else { return }
         finishDeletingLayer(id, baked: [:])
     }
@@ -691,7 +808,7 @@ final class EditorSession {
         // Captured first: deleting moves the active layer, which resets the selection.
         let ids = document.layers.map(\.id).filter(selectedLayerIDs.contains)
         guard ids.count > 1 else { deleteActiveLayer(); return }
-        guard !deleteWithLiveMaskChoice(ids) else { return }
+        guard deletionUnlocked(ids), !deleteWithLiveMaskChoice(ids) else { return }
         finishDeletingLayers(ids, baked: [:])
     }
 
@@ -759,6 +876,21 @@ final class EditorSession {
     }
     private var pendingImports: [ImportRequest] = []
 
+    /// What an import may still add to the document (`DocumentLimits.documentPixelBudget` less its layers' pixels), and
+    /// its masks (`LayerMask.maximumProjectPixels` less the masks it has), counted apart as a project counts them.
+    func remainingImportPixels() -> (pixels: Int, maskPixels: Int) {
+        let layers = document?.layers ?? []
+        let used = layers.reduce(0) { total, layer in
+            guard let image = layer.asset?.image else { return total }
+            return total + image.width * image.height
+        }
+        let usedMasks = layers.reduce(0) { total, layer in
+            guard let mask = layer.mask?.asset.image else { return total }
+            return total + mask.width * mask.height
+        }
+        return (DocumentLimits.documentPixelBudget - used, LayerMask.maximumProjectPixels - usedMasks)
+    }
+
     func importImages(_ urls: [URL], at point: CGPoint? = nil) async {
         guard !urls.isEmpty else { return }
         if brushStroke != nil { await finishBrush() }
@@ -780,7 +912,9 @@ final class EditorSession {
         var failures: [String] = []
         while !pendingImports.isEmpty {
           let request = pendingImports.removeFirst()
-          let psdOnly = request.files.allSatisfy { PSDReader.matches($0.0) }
+          // Each check reads the file (a cloud-only one downloads first), so none runs on the main actor.
+          var psdOnly = true
+          for file in request.files where !(await FileProbe.isPhotoshop(file.url)) { psdOnly = false; break }
           beginEdit(psdOnly ? "Import Photoshop File" : "Import Images")
           // No document: the first successful image determines the canvas, regardless of drop point.
           let point = document == nil ? nil : request.point
@@ -788,35 +922,32 @@ final class EditorSession {
             defer { if scoped { url.stopAccessingSecurityScopedResource() } }
             do {
                 guard url.isFileURL else { throw ImageImportError.unsupported }
-                let usedPixels = document?.layers.reduce(0) { total, layer in
-                    guard let image = layer.asset?.image else { return total }
-                    return total + image.width * image.height
-                } ?? 0
+                let remaining = remainingImportPixels()
                 if RawImporter.matches(url) {
-                    guard let size = RawImporter.pixelSize(url) else { throw ImageImportError.unreadable }
+                    guard let size = await FileProbe.rawPixelSize(url) else { throw ImageImportError.unreadable }
                     guard size.width <= DocumentLimits.maxSide, size.height <= DocumentLimits.maxSide,
-                          size.width * size.height <= DocumentLimits.documentPixelBudget - usedPixels else { throw ImageImportError.tooLarge }
+                          size.width * size.height <= remaining.pixels else { throw ImageImportError.tooLarge }
                     guard let settings = await developRaw(url) else { continue }
                     // Seconds of work: off the main actor, or pressing Import freezes the window.
                     guard let developed = await RawImporter.Queue.shared.develop(url, settings: settings, limit: nil)
                     else { throw ImageImportError.unreadable }
-                    let thumbnail = try PixelAdjust.thumbnail(of: developed)
+                    let thumbnail = try await FileProbe.thumbnail(of: developed)
                     insert(ImportedImage(image: developed, thumbnail: thumbnail,
                                          name: url.deletingPathExtension().lastPathComponent), centeredAt: point)
-                } else if UTType(filenameExtension: url.pathExtension)?.conforms(to: .svg) == true {
-                    let asset = try await ImageImporter.shared.decodeSVG(url, fitting: document?.size,
-                                                                         remainingPixels: DocumentLimits.documentPixelBudget - usedPixels)
+                } else if ImageImporter.isSVG(url) {
+                    let asset = try await ImageImporter.shared.decodeSVG(url, fitting: document?.size, remainingPixels: remaining.pixels)
                     insert(asset, centeredAt: point)
-                } else if PSDReader.matches(url) {
+                } else if await FileProbe.isPhotoshop(url) {
                     beginPSDReading(title: "Open “\(url.lastPathComponent)”?", confirmTitle: "Import")
                     let imported: PSDImport
                     do {
-                        let parsed = try await ImageImporter.shared.loadPhotoshop(url, remainingPixels: DocumentLimits.documentPixelBudget - usedPixels)
+                        let parsed = try await ImageImporter.shared.loadPhotoshop(
+                            url, remainingPixels: remaining.pixels, remainingMaskPixels: remaining.maskPixels)
                         // Only a background: Photoshop writes no layer records, just the merged image, so that is
                         // what comes in, as one layer.
                         if parsed.layers.isEmpty {
                             endPSDReading()
-                            let asset = try await ImageImporter.shared.decode(url, remainingPixels: DocumentLimits.documentPixelBudget - usedPixels,
+                            let asset = try await ImageImporter.shared.decode(url, remainingPixels: remaining.pixels,
                                                                               flattenedPhotoshop: true)
                             insert(asset, centeredAt: point)
                             continue
@@ -827,10 +958,15 @@ final class EditorSession {
                         endPSDReading()
                         throw error
                     }
-                    if !(await finishPSDReading(imported.conversions)) { continue }
+                    var conversions = imported.conversions
+                    if let document, let note = PSDDocumentBuilder.resolutionMismatchNote(
+                        fileName: url.lastPathComponent, importedResolution: imported.resolution, existingResolution: document.resolution) {
+                        conversions.append(note)
+                    }
+                    if !(await finishPSDReading(conversions)) { continue }
                     try insertPhotoshop(imported, named: url.deletingPathExtension().lastPathComponent, centeredAt: point)
                 } else {
-                    let asset = try await ImageImporter.shared.decode(url, remainingPixels: DocumentLimits.documentPixelBudget - usedPixels)
+                    let asset = try await ImageImporter.shared.decode(url, remainingPixels: remaining.pixels)
                     insert(asset, centeredAt: point)
                 }
             } catch {
@@ -913,11 +1049,15 @@ final class EditorSession {
         var incoming = imported.layers
         let wrapping = document != nil
         let added = incoming.count + (wrapping ? 1 : 0)
-        if (document?.layers.count ?? 0) + added > 10_000 { throw ImageImportError.tooLarge }
+        if (document?.layers.count ?? 0) + added > LayerLimitError.maximum { throw LayerLimitError() }
         if document == nil {
-            document = CanvasDocument(width: imported.width, height: imported.height, layers: incoming, resolution: imported.resolution)
+            document = CanvasDocument(width: imported.width, height: imported.height, layers: incoming,
+                                      resolution: imported.resolution, guides: imported.guides)
+            document?.psdExtras = imported.extras
             viewport.fit(documentSize: document!.size)
-            activeLayerID = incoming.last(where: { $0.parentID == nil })?.id ?? incoming.last?.id
+            // The topmost layer that shows, not a hidden Photoshop placeholder.
+            activeLayerID = incoming.last(where: { $0.parentID == nil && !$0.isPhotoshopPlaceholder })?.id
+                ?? incoming.last(where: { !$0.isPhotoshopPlaceholder })?.id ?? incoming.last?.id
             return
         }
         guard document != nil else { return }
@@ -931,6 +1071,9 @@ final class EditorSession {
                 for index in incoming.indices {
                     incoming[index].transform.origin.x += dx
                     incoming[index].transform.origin.y += dy
+                    // A mask placed apart from its layer moves with it.
+                    incoming[index].mask?.placement?.origin.x += dx
+                    incoming[index].mask?.placement?.origin.y += dy
                 }
             }
         }

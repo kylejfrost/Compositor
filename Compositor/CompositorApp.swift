@@ -50,7 +50,8 @@ struct CompositorApp: App {
                         Task { await applicationDelegate.projects.newCanvas() }
                     }.configuredKeyboardShortcut("n")
                         .disabled(!applicationDelegate.projects.canStart)
-                    Button("Open Project…") {
+                    // Projects and Photoshop files; Save As… offers both formats.
+                    Button("Open…") {
                         applicationDelegate.showEditor?()
                         Task { await applicationDelegate.projects.open() }
                     }
@@ -341,5 +342,8 @@ struct CompositorApp: App {
                         .disabled(!session.canEditLayers || session.activeLayer == nil)
                 }
             }
+        Settings {
+            MCPSettingsView(server: applicationDelegate.mcpServer)
+        }
     }
 }

@@ -1,0 +1,49 @@
+{
+  "skill_name": "compositor-development",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Add a read-only MCP tool get_canvas_info to Compositor that returns a document's width, height, resolution and layer count. Include tests and docs, and run the tests. Other agents are building in sibling worktrees on this Mac, so don't step on them.",
+      "expected_output": "A new tool entry in MCPTools+Documents.swift with effect .readOnly and the document selector, a handler using ctx.document() and MCPToolRegistry.ok, a Swift Testing suite using MCPTestSupport that checks values and the no-document precondition error, a new line in docs/mcp.md's tool reference, and a test run through xcodebuild with its own -derivedDataPath and -only-testing, logs grepped rather than dumped.",
+      "files": [],
+      "expectations": [
+        "The tool is declared with MCPToolRegistry.tool(...) in Compositor/MCP/MCPTools+Documents.swift with effect .readOnly",
+        "The handler reads the document through ctx.document() (or MCPGuards) and returns MCPToolRegistry.ok(...) rather than ctx.mutated",
+        "Tests use MCPTestSupport.workspace() and MCPTestSupport.call(...), including an expectError case",
+        "docs/mcp.md gains a line for get_canvas_info in the Tool reference",
+        "Every xcodebuild command passes a -derivedDataPath specific to this checkout",
+        "Each shell command sets the variables it uses (REPO, DD) or spells the paths out; none relies on a variable from an earlier command, so no run has an empty -project or -derivedDataPath",
+        "Test runs use -only-testing:CompositorTests/<Suite> and the output is written to a file and grepped",
+        "No test binds port 2667, uses MCPServer() with production options, or writes UserDefaults.standard"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "I want Compositor projects to remember a per-layer 'note' string (free text a designer leaves for the next person). Plan and implement the .comp side of it: model, saving and loading, docs, tests. Tell me whether this needs a manifest version bump and why.",
+      "expected_output": "Adds an optional note to ImageLayer and ProjectLayerRecord, maps it in both directions in ImageLayer+Record.swift (so Image Size, Canvas Size, Crop and copies keep it), omits it when empty, validates it (length limit), documents it in docs/project-format.md, and adds round-trip tests. Reasons about versioning with the project's rule: an older build ignoring a note draws the same pixels, so no bump is strictly required, or chooses a bump with a version gate and rejection test, and explains the trade-off either way.",
+      "files": [],
+      "expectations": [
+        "The note field is added to ProjectLayerRecord and mapped in both ProjectLayerRecord(layer:) and ImageLayer(record:snapshot:) in ImageLayer+Record.swift",
+        "An empty or missing note is written as nil and decoded as no note",
+        "The answer on versioning cites whether an older build would misrender or lose meaning, and if it bumps the version it adds a ProjectStore check rejecting the field in older versions",
+        "docs/project-format.md documents the field",
+        "A test saves with ProjectStore.shared.save and reloads with ProjectStore.shared.load/installProject and checks the note survives",
+        "A test checks that Image Size, Canvas Size or Crop keep the note"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Photoshop's 'Knockout' blending option lives in a knko tagged block. Make Compositor read it on PSD import so a later writer can keep it, and show it in get_document. The only real samples are client PSDs in ~/Library/CloudStorage — be careful with those.",
+      "expected_output": "Keeps the knko block untouched in psdExtras (it already is), decodes its value alongside in Compositor/IO/PSD with bounds checks, adds a model property with a neutral default and, if editable, an imported snapshot, maps it into .comp following the version rules, exposes it in MCPValues/get_document, and tests with a PSDFixture-built file carrying a synthetic knko block (plus malformed-input tests). Does not read client PSDs in place from tests; if a real sample is needed, copies it to /private/tmp and reports only counts or hashes; never commits client files or names.",
+      "files": [],
+      "expectations": [
+        "The original knko block stays byte-identical in PSDLayerExtras.blocks and a test asserts it",
+        "Tests build the PSD with PSDFixture and synthetic layer names rather than using a client file",
+        "Decoding rejects a truncated or oversized block without trapping",
+        "The new property survives a .comp save and reload, with the version rules applied",
+        "get_document (MCPValues) reports the value",
+        "No test or probe reads files under ~/Library/CloudStorage in place; any real sample is copied to /private/tmp first and no client name is written anywhere"
+      ]
+    }
+  ]
+}

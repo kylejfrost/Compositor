@@ -1,0 +1,256 @@
+{
+  "tools": [
+    {
+      "name": "export_image",
+      "title": "Export image",
+      "description": "Renders the composite to a PNG or JPEG file. Never replaces an existing file unless overwrite is true.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "path"
+        ],
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Output path: absolute, ~/…, or relative to the Agent folder."
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "png",
+              "jpeg"
+            ],
+            "description": "Output format. Defaults from the path extension."
+          },
+          "quality": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "default": 0.85,
+            "description": "JPEG quality."
+          },
+          "max_size": {
+            "type": "integer",
+            "minimum": 16,
+            "maximum": 30000,
+            "description": "Longest side of the file, in pixels."
+          },
+          "overwrite": {
+            "type": "boolean",
+            "default": false,
+            "description": "Replace an existing file at 'path'."
+          },
+          "region": {
+            "type": "object",
+            "description": "Part of the canvas to export.",
+            "required": [
+              "x",
+              "y",
+              "width",
+              "height"
+            ],
+            "properties": {
+              "x": {
+                "type": "number",
+                "description": "Left edge in document pixels."
+              },
+              "y": {
+                "type": "number",
+                "description": "Top edge in document pixels."
+              },
+              "width": {
+                "type": "number",
+                "minimum": 0,
+                "description": "Width in document pixels."
+              },
+              "height": {
+                "type": "number",
+                "minimum": 0,
+                "description": "Height in document pixels."
+              }
+            }
+          },
+          "document": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "description": "Which open document to act on. Defaults to the current tab."
+          }
+        }
+      }
+    },
+    {
+      "name": "list_documents",
+      "title": "List open documents",
+      "description": "Lists every open document tab.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "run_batch",
+      "title": "Run batch",
+      "description": "Runs several tool calls as one undo step.\nStops at the first failure.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "steps"
+        ],
+        "properties": {
+          "steps": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 200,
+            "description": "The calls to make, in order.",
+            "items": {
+              "type": "object",
+              "required": [
+                "tool"
+              ],
+              "properties": {
+                "tool": {
+                  "type": "string",
+                  "description": "The tool's name, e.g. add_blank_layer."
+                },
+                "arguments": {
+                  "type": "object",
+                  "description": "The tool's arguments."
+                }
+              }
+            }
+          },
+          "rollback_on_error": {
+            "type": "boolean",
+            "default": false,
+            "description": "Undo the earlier steps too when one fails."
+          }
+        }
+      }
+    },
+    {
+      "name": "add_blank_layer",
+      "title": "Add blank layer",
+      "description": "Adds an empty pixel layer above the active layer. Takes a name | or none.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "The layer's name (a | in it is fine)."
+          },
+          "fill": {
+            "anyOf": [
+              {
+                "type": "object",
+                "required": [
+                  "r",
+                  "g",
+                  "b"
+                ],
+                "properties": {
+                  "r": {
+                    "type": "number"
+                  },
+                  "g": {
+                    "type": "number"
+                  },
+                  "b": {
+                    "type": "number"
+                  }
+                }
+              },
+              {
+                "type": "string",
+                "pattern": "^#[0-9A-Fa-f]{6}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A color, or null for none."
+          },
+          "style": {
+            "description": "Effects to add, or null for none.",
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "size": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 500,
+                    "description": "Stroke width in pixels."
+                  },
+                  "opacity": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1,
+                    "description": "Opacity."
+                  },
+                  "enabled": {
+                    "type": "boolean",
+                    "description": "Shown."
+                  },
+                  "inside": {
+                    "type": "boolean",
+                    "description": "Inside the edge."
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "frobnicate_widgets",
+      "title": "Frobnicate widgets",
+      "description": "A tool the domain table has never heard of.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "count": {
+            "type": "integer",
+            "minimum": 1,
+            "default": 3,
+            "description": "How many."
+          }
+        }
+      }
+    }
+  ]
+}

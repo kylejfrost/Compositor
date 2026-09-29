@@ -196,6 +196,7 @@ extension EditorSession {
             brushError = isMaskSelected ? "Smudge and Liquify work on a layer's pixels, not its mask." : paintRefusal
             return
         }
+        guard pixelsUnlocked(layer, mask: false) else { return }
         finishOpacityEdit()
         do {
             let stroke = try WarpStroke(layer: layer, image: image, transform: displayedTransform(for: layer),
@@ -212,22 +213,27 @@ extension EditorSession {
         guard let warp = warpStroke else { return }
         warpStroke = nil
         brushRevision += 1
+        do { try commitWarp(warp, settings: brushSettings) } catch { brushError = error.localizedDescription }
+    }
+
+    /// Paints a Smudge or Liquify stroke's result into its layer's pixels along the stroke, as one undo step named after
+    /// the mode. `settings` gives everything but the tip, which covers what the stroke moved. Nothing happens when the
+    /// stroke moved nothing, or the layer changed since it began.
+    func commitWarp(_ warp: WarpStroke, settings base: BrushSettings) throws {
         guard !warp.points.isEmpty, let result = warp.image,
               let current = document?.layers.first(where: { $0.id == warp.layer.id }),
               current.asset?.image === warp.layer.asset?.image, current.transform == warp.layer.transform else { return }
-        do {
-            var settings = brushSettings
-            // A hard tip a little wider than the brush covers everything the stroke moved.
-            settings.diameter = warp.diameter + 4
-            settings.hardness = 1
-            settings.opacity = 1
-            let stroke = try makeRasterEdit(for: current, settings: settings)
-            stroke.clone = (result, CGRect(x: 0, y: 0, width: result.width, height: result.height), false)
-            stroke.replacesWithClone = true
-            stroke.editName = warp.mode.rawValue
-            for point in warp.points { try stroke.append(point) }
-            try stroke.flush()
-            if !stroke.patches.isEmpty { try commitPaintSnapshot(stroke) }
-        } catch { brushError = error.localizedDescription }
+        var settings = base
+        // A hard tip a little wider than the brush covers everything the stroke moved (within the largest tip).
+        settings.diameter = min(2000, warp.diameter + 4)
+        settings.hardness = 1
+        settings.opacity = 1
+        let stroke = try makeRasterEdit(for: current, settings: settings, mask: false)
+        stroke.clone = (result, CGRect(x: 0, y: 0, width: result.width, height: result.height), false)
+        stroke.replacesWithClone = true
+        stroke.editName = warp.mode.rawValue
+        for point in warp.points { try stroke.append(point) }
+        try stroke.flush()
+        if !stroke.patches.isEmpty { try commitPaintSnapshot(stroke) }
     }
 }

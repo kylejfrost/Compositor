@@ -21,6 +21,8 @@ nonisolated final class LiveMaskRenderer {
     /// The part of the document `bounds` shows, when the context isn't laid out in document pixels (the canvas), so
     /// Grain's and Add Noise's patterns stay with the document.
     var adjustmentRegion: ((CGRect) -> CGRect)?
+    /// What a Profile layer does when its table is still baking.
+    var profileTables: ProfileTablePolicy = .bakeNow
     /// Pixels per unit of `bounds` for the surfaces made along the way (a clipping stack, a coverage): the screen's, on
     /// the canvas, so they're as sharp as what they're drawn into.
     var resolution: CGFloat = 1
@@ -32,7 +34,8 @@ nonisolated final class LiveMaskRenderer {
     }
     private func adjust(_ id: UUID, in context: CGContext) {
         guard let settings = adjustment(id), let original = context.makeImage(),
-              var adjusted = try? settings.apply(original, region: adjustmentRegion?(bounds) ?? bounds, scale: adjustmentScale) else { return }
+              var adjusted = try? settings.apply(original, region: adjustmentRegion?(bounds) ?? bounds,
+                                                 scale: adjustmentScale, profileTables: profileTables) else { return }
         if blendMode(id) != .normal {
             // Blend colors at full coverage, then restore the original alpha.
             // Source-over of two translucent copies would thicken soft edges.

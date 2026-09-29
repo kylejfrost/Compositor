@@ -7,6 +7,7 @@ nonisolated enum AdjustmentKind: String, Codable, CaseIterable, Sendable {
     case gaussianBlur = "Gaussian Blur", motionBlur = "Motion Blur"
     case invert = "Invert"
     case blackWhite = "Black & White", colorBalance = "Color Balance"
+    case profile = "Profile"
     var symbol: String {
         switch self {
         case .curves: return "point.topleft.down.to.point.bottomright.curvepath"
@@ -21,6 +22,7 @@ nonisolated enum AdjustmentKind: String, Codable, CaseIterable, Sendable {
         case .invert: return "circle.righthalf.filled"
         case .blackWhite: return "circle.filled.pattern.diagonalline.rectangle"
         case .colorBalance: return "scale.3d"
+        case .profile: return "camera.filters"
         }
     }
     /// The filter panel that edits this kind; Levels and Hue/Saturation have panels of their own.
@@ -37,8 +39,8 @@ nonisolated enum AdjustmentKind: String, Codable, CaseIterable, Sendable {
         case .gaussianBlur: return .gaussianBlur
         case .motionBlur: return .motionBlur
         case .addNoise: return .addNoise
-        // Hue/Saturation and Levels have panels of their own; Invert has nothing to set.
-        case .hsv, .levels, .invert: return nil
+        // Hue/Saturation and Levels have panels of their own; Invert has nothing to set; Profile is no filter.
+        case .hsv, .levels, .invert, .profile: return nil
         }
     }
 }
@@ -61,6 +63,8 @@ nonisolated struct LayerAdjustment: Codable, Equatable, Sendable {
     var grainSettings: GrainSettings?
     var blackWhiteSettings: BlackWhiteSettings?
     var colorBalanceSettings: ColorBalanceSettings?
+    // Optional so projects without profiles decode, and save, exactly as before.
+    var profileSettings: ProfileAdjustmentSettings?
     // Optional so projects created before blur adjustments continue to decode unchanged.
     var blurRadius: Double?
     var motionAngle: Double?
@@ -88,6 +92,10 @@ nonisolated struct LayerAdjustment: Codable, Equatable, Sendable {
     var colorBalance: ColorBalanceSettings {
         get { colorBalanceSettings ?? ColorBalanceSettings() }
         set { colorBalanceSettings = newValue }
+    }
+    var profile: ProfileAdjustmentSettings {
+        get { profileSettings ?? ProfileAdjustmentSettings() }
+        set { profileSettings = newValue }
     }
     var gaussianRadius: Double {
         get { blurRadius ?? 10 }
@@ -138,10 +146,14 @@ nonisolated struct LayerAdjustment: Codable, Equatable, Sendable {
         && resolvedMotionAngle.isFinite && (-90...90).contains(resolvedMotionAngle)
         && resolvedMotionDistance.isFinite && (1...2000).contains(resolvedMotionDistance)
         && resolvedNoiseAmount.isFinite && (0.1...400).contains(resolvedNoiseAmount)
+        && (profileSettings?.isValid ?? true)
     }
     /// `region` is the part of the document `image` covers (the whole image at one unit per pixel when
     /// omitted), so Grain's pattern stays fixed in the document however the canvas splits its drawing.
-    func apply(_ image: CGImage, region: CGRect? = nil, scale: CGFloat = 1) throws -> CGImage {
+    /// `profileTables` is what a Profile layer does on a large image whose table isn't baked (see
+    /// `ProfileTablePolicy`); the canvas never waits for one.
+    func apply(_ image: CGImage, region: CGRect? = nil, scale: CGFloat = 1,
+               profileTables: ProfileTablePolicy = .bakeNow) throws -> CGImage {
         switch kind {
         case .hsv:
             return try HueSaturationFilter.run(HueSaturationJob(image: image,
@@ -178,14 +190,13 @@ nonisolated struct LayerAdjustment: Codable, Equatable, Sendable {
         case .invert:
             return try PixelInvert.run(PixelInvert.Job(image: image, isMask: false,
                                                        pixelToDocument: .identity, selection: nil))
+        case .profile: return try profile.apply(image, tables: profileTables)
         }
     }
 }
 
 extension EditorSession {
     func addAdjustment(_ kind: AdjustmentKind) {
-        guard canEditLayers, let document, document.layers.count < 10_000 else { return }
-        var layer = ImageLayer(name: kind.rawValue, blankSize: document.size)
         var adjustment = LayerAdjustment(kind: kind)
         // A new Gradient Map runs from the foreground to the background color, as in Photoshop;
         // each Grain layer gets a pattern of its own.
@@ -194,20 +205,37 @@ extension EditorSession {
         }
         if kind == .grain { adjustment.grain.seed = .random(in: .min ... .max) }
         if kind == .addNoise { adjustment.resolvedNoiseSeed = .random(in: .min ... .max) }
+        guard let id = insertAdjustmentLayer(adjustment, name: kind.rawValue) else { return }
+        // Invert has nothing to set, so the new layer just applies rather than opening an editor.
+        if kind.isEditable { adjustmentEditingID = id }
+    }
+    /// Inserts an adjustment layer above the active layer (inside it, when it is a folder) and makes it active, as
+    /// one undo step ("New <kind> Adjustment"). nil, and nothing added, when layers can't be edited.
+    func insertAdjustmentLayer(_ adjustment: LayerAdjustment, name: String) -> UUID? {
+        guard canEditLayers, let document, document.layers.count < LayerLimitError.maximum else { return nil }
+        var layer = ImageLayer(name: name, blankSize: document.size)
         layer.adjustment = adjustment
         layer.parentID = activeLayer?.isGroup == true ? activeLayerID : activeLayer?.parentID
         let index = document.layers.firstIndex { $0.id == activeLayerID }.map { $0 + 1 } ?? document.layers.count
-        beginEdit("New \(kind.rawValue) Adjustment")
+        beginEdit("New \(adjustment.kind.rawValue) Adjustment")
         self.document?.layers.insert(layer, at: index)
         if let parent = layer.parentID { collapsedGroupIDs.remove(parent) }
         activeLayerID = layer.id
         endEdit()
-        // Invert has nothing to set, so the new layer just applies rather than opening an editor.
-        if kind.isEditable { adjustmentEditingID = layer.id }
+        return layer.id
     }
     func updateAdjustment(_ id: UUID, value: LayerAdjustment) {
         guard let index = document?.layers.firstIndex(where: { $0.id == id }), value.isValid else { return }
         document?.layers[index].adjustment = value
         brushRevision += 1
+    }
+    /// Replaces an adjustment layer's settings as one undo step; `updateAdjustment` alone is the live-preview path
+    /// and records none. Settings the layer already has change nothing, and Lock All (its own or a folder's) holds
+    /// them; a pixel lock doesn't, as in Photoshop.
+    func setAdjustment(_ id: UUID, value: LayerAdjustment) {
+        guard canEditLayers, document?.layers.first(where: { $0.id == id })?.adjustment != value, !isHeldByLockAll(id) else { return }
+        beginEdit("Edit Adjustment")
+        updateAdjustment(id, value: value)
+        endEdit()
     }
 }

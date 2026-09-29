@@ -230,7 +230,9 @@ extension EditorSession {
                            : draft.kind == .ellipse ? "Elliptical Marquee" : "Rectangular Marquee")
     }
 
-    func applySelection(_ shape: CGPath, mode: SelectionMode, name: String) {
+    /// Combines `shape` with the current selection by `mode`, clipped to the canvas, as one undo step. The result is
+    /// antialiased as `antialiased` says, or as the tool options say when it is nil.
+    func applySelection(_ shape: CGPath, mode: SelectionMode, name: String, antialiased: Bool? = nil) {
         guard let document, canEditSelection else { return }
         let canvas = CGPath(rect: CGRect(origin: .zero, size: document.size), transform: nil)
         let clipped = shape.intersection(canvas, using: .winding)
@@ -243,7 +245,7 @@ extension EditorSession {
             guard let current = selection else { return }
             result = current.path.subtracting(clipped, using: .winding)
         }
-        setSelection(DocumentSelection(path: result, antialiased: selectionAntialiased), name: name)
+        setSelection(DocumentSelection(path: result, antialiased: antialiased ?? selectionAntialiased), name: name)
     }
 
     func setSelection(_ value: DocumentSelection?, name: String) {
@@ -280,6 +282,15 @@ extension EditorSession {
         guard selectionMoveOrigin != nil else { return }
         selectionMoveOrigin = nil
         endEdit()
+    }
+
+    /// Moves, scales or otherwise transforms the selection outline (never pixels) as one undo step, keeping its
+    /// feather and antialiasing. As with a drag, the outline is not re-clipped to the canvas.
+    func transformSelectionOutline(_ affine: CGAffineTransform, name: String) {
+        guard let current = selection, !current.isEmpty else { return }
+        var matrix = affine
+        guard let path = current.path.copy(using: &matrix) else { return }
+        setSelection(DocumentSelection(path: path, antialiased: current.antialiased, feather: current.feather), name: name)
     }
 
     /// Arrow-key nudge: 1 px, or 10 px with Shift. Each press is one undo step.

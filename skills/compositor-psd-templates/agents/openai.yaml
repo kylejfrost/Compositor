@@ -1,0 +1,4 @@
+interface:
+  display_name: "Compositor PSD Templates"
+  short_description: "Fill Photoshop templates in Compositor: swap photos, replace and fit text, keep locks, save a new PSD, verify."
+  default_prompt: "Use this skill to fill a PSD template through Compositor's MCP tools: open it headlessly, map its slots, replace smart-object photos and text, respect locks and fonts, export previews, save a new file beside the source, and verify it with psd-verify."

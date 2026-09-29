@@ -1,0 +1,22 @@
+{
+  "skill_name": "compositor-image-editing",
+  "about": "Images scripts/skills-eval/replay_fixtures.py writes into the eval instance's Agent folder before the evals run, with the sha256 of each. The evals start from these files; no document fixture is needed. The profile eval needs a Film-Inspired profile without depending on Adobe's library: the replay writes a synthetic Look profile (the committed film-prophoto test fixture under a new name and group) and the film-profile fixture imports it into the instance.",
+  "images": [
+    {"path": "eval-inputs/product-on-gray.png", "width": 1200, "height": 1200, "kind": "disc", "from": "#d62828", "to": "#9e9e9e", "center": {"x": 600, "y": 560}, "radius": 300},
+    {"path": "eval-inputs/dim-warm-room.png", "width": 1600, "height": 1067, "kind": "linear_gradient", "from": "#3a2410", "to": "#8a5a2b", "angle": 90},
+    {"path": "eval-inputs/city-street.png", "width": 1500, "height": 1000, "kind": "linear_gradient", "from": "#2b3a55", "to": "#e0c9a6", "angle": 0}
+  ],
+  "profiles": [
+    {"path": "eval-inputs/profiles/synthetic-film-01.xmp", "from": "film-prophoto", "name": "Synthetic Film 01", "group": "Film-Inspired"}
+  ],
+  "fixtures": [
+    {
+      "id": "film-profile",
+      "description": "Imports the synthetic Film-Inspired profile into the instance's profile library, so list_profiles finds it.",
+      "outputs": ["eval-inputs/profiles/synthetic-film-01.xmp"],
+      "calls": [
+        {"tool": "import_profile", "arguments": {"path": "eval-inputs/profiles/synthetic-film-01.xmp"}}
+      ]
+    }
+  ]
+}

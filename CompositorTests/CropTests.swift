@@ -163,4 +163,23 @@ struct CropTests {
         let layers = view.subviews.map { "\(type(of: $0)) layer \($0.layer != nil)" }.joined(separator: ", ")
         #expect(canvasRedraws == 0, "the canvas redrew on \(canvasRedraws) of 10 crop drag steps; canvas layer \(view.layer != nil); \(layers)")
     }
+
+    @Test func cropKeepsTextShapesAndEffects() async throws {
+        let fixture = try EditableLayers()
+        let session = fixture.session
+        let before = try #require(session.document)
+        session.selectTool(.crop)
+        session.cropRect = CGRect(x: 5, y: 5, width: 300, height: 150)
+        await session.commitCrop()
+        #expect(session.document?.size == CGSize(width: 300, height: 150))
+        for id in [fixture.text, fixture.box, fixture.shape] {
+            let old = try #require(before.layers.first { $0.id == id })
+            let layer = try fixture.layer(id)
+            #expect(layer.transform.origin == CGPoint(x: old.transform.origin.x - 5, y: old.transform.origin.y - 5))
+            #expect(layer.liveText == old.liveText && layer.liveShape == old.liveShape)
+            #expect(layer.effects == old.effects && layer.effects != nil)
+        }
+        #expect(try fixture.layer(fixture.text).liveText != nil)
+        #expect(try fixture.layer(fixture.shape).liveShape != nil)
+    }
 }

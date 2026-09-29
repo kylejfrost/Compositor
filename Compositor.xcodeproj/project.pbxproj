@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		5A9C0D1E2F3A4B5C6D7E8F01 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 5A9C0D1E2F3A4B5C6D7E8F03 /* Sparkle */; };
+		C0DE15B1D6E000000000000D /* compositor-mcp in Embed Helpers */ = {isa = PBXBuildFile; fileRef = C0DE15B1D6E0000000000003 /* compositor-mcp */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -25,12 +26,34 @@
 			remoteGlobalIDString = 8F311F98304F03BB0017D14F;
 			remoteInfo = Compositor;
 		};
+		C0DE15B1D6E000000000000A /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 8F311F91304F03BB0017D14F /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = C0DE15B1D6E0000000000004;
+			remoteInfo = "compositor-mcp";
+		};
 /* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		C0DE15B1D6E000000000000C /* Embed Helpers */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 6;
+			files = (
+				C0DE15B1D6E000000000000D /* compositor-mcp in Embed Helpers */,
+			);
+			name = "Embed Helpers";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		8F311F99304F03BB0017D14F /* Compositor.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Compositor.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		8F311FA6304F03BC0017D14F /* CompositorTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CompositorTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		8F311FB0304F03BC0017D14F /* CompositorUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CompositorUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		C0DE15B1D6E0000000000003 /* compositor-mcp */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = "compositor-mcp"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -47,6 +70,11 @@
 		8F311FB3304F03BC0017D14F /* CompositorUITests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = CompositorUITests;
+			sourceTree = "<group>";
+		};
+		C0DE15B1D6E0000000000001 /* compositor-mcp */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = "compositor-mcp";
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -74,6 +102,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		C0DE15B1D6E0000000000006 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -83,6 +118,7 @@
 				8F311F9B304F03BB0017D14F /* Compositor */,
 				8F311FA9304F03BC0017D14F /* CompositorTests */,
 				8F311FB3304F03BC0017D14F /* CompositorUITests */,
+				C0DE15B1D6E0000000000002 /* Tools */,
 				8F311F9A304F03BB0017D14F /* Products */,
 			);
 			sourceTree = "<group>";
@@ -93,8 +129,17 @@
 				8F311F99304F03BB0017D14F /* Compositor.app */,
 				8F311FA6304F03BC0017D14F /* CompositorTests.xctest */,
 				8F311FB0304F03BC0017D14F /* CompositorUITests.xctest */,
+				C0DE15B1D6E0000000000003 /* compositor-mcp */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		C0DE15B1D6E0000000000002 /* Tools */ = {
+			isa = PBXGroup;
+			children = (
+				C0DE15B1D6E0000000000001 /* compositor-mcp */,
+			);
+			path = Tools;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -107,10 +152,12 @@
 				8F311F95304F03BB0017D14F /* Sources */,
 				8F311F96304F03BB0017D14F /* Frameworks */,
 				8F311F97304F03BB0017D14F /* Resources */,
+				C0DE15B1D6E000000000000C /* Embed Helpers */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				C0DE15B1D6E000000000000B /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				8F311F9B304F03BB0017D14F /* Compositor */,
@@ -118,6 +165,7 @@
 			name = Compositor;
 			packageProductDependencies = (
 				5A9C0D1E2F3A4B5C6D7E8F03 /* Sparkle */,
+				A1B2C3D4E5F6010000000002 /* MCP */,
 			);
 			productName = Compositor;
 			productReference = 8F311F99304F03BB0017D14F /* Compositor.app */;
@@ -141,6 +189,7 @@
 			);
 			name = CompositorTests;
 			packageProductDependencies = (
+				A1B2C3D4E5F6010000000002 /* MCP */,
 			);
 			productName = CompositorTests;
 			productReference = 8F311FA6304F03BC0017D14F /* CompositorTests.xctest */;
@@ -169,6 +218,27 @@
 			productReference = 8F311FB0304F03BC0017D14F /* CompositorUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
+		C0DE15B1D6E0000000000004 /* compositor-mcp */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = C0DE15B1D6E0000000000007 /* Build configuration list for PBXNativeTarget "compositor-mcp" */;
+			buildPhases = (
+				C0DE15B1D6E0000000000005 /* Sources */,
+				C0DE15B1D6E0000000000006 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				C0DE15B1D6E0000000000001 /* compositor-mcp */,
+			);
+			name = "compositor-mcp";
+			packageProductDependencies = (
+			);
+			productName = "compositor-mcp";
+			productReference = C0DE15B1D6E0000000000003 /* compositor-mcp */;
+			productType = "com.apple.product-type.tool";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -190,6 +260,9 @@
 						CreatedOnToolsVersion = 26.6;
 						TestTargetID = 8F311F98304F03BB0017D14F;
 					};
+					C0DE15B1D6E0000000000004 = {
+						CreatedOnToolsVersion = 26.6;
+					};
 				};
 			};
 			buildConfigurationList = 8F311F94304F03BB0017D14F /* Build configuration list for PBXProject "Compositor" */;
@@ -203,6 +276,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				5A9C0D1E2F3A4B5C6D7E8F02 /* XCRemoteSwiftPackageReference "Sparkle" */,
+				A1B2C3D4E5F6010000000001 /* XCRemoteSwiftPackageReference "swift-sdk" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 8F311F9A304F03BB0017D14F /* Products */;
@@ -212,6 +286,7 @@
 				8F311F98304F03BB0017D14F /* Compositor */,
 				8F311FA5304F03BC0017D14F /* CompositorTests */,
 				8F311FAF304F03BC0017D14F /* CompositorUITests */,
+				C0DE15B1D6E0000000000004 /* compositor-mcp */,
 			);
 		};
 /* End PBXProject section */
@@ -262,6 +337,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		C0DE15B1D6E0000000000005 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -274,6 +356,11 @@
 			isa = PBXTargetDependency;
 			target = 8F311F98304F03BB0017D14F /* Compositor */;
 			targetProxy = 8F311FB1304F03BC0017D14F /* PBXContainerItemProxy */;
+		};
+		C0DE15B1D6E000000000000B /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = C0DE15B1D6E0000000000004 /* compositor-mcp */;
+			targetProxy = C0DE15B1D6E000000000000A /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -416,11 +503,9 @@
 				CURRENT_PROJECT_VERSION = 36;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = "";
-				ENABLE_APP_SANDBOX = YES;
+				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
-				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				ENABLE_PREVIEWS = YES;
-				ENABLE_USER_SELECTED_FILES = readwrite;
 				GCC_OPTIMIZATION_LEVEL = 3;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Config/Info.plist;
@@ -433,7 +518,6 @@
 				MARKETING_VERSION = 1.4.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.wonderassembly.compositor;
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				REGISTER_APP_GROUPS = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
@@ -455,11 +539,9 @@
 				CURRENT_PROJECT_VERSION = 36;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = 3E4X3B9Z9T;
-				ENABLE_APP_SANDBOX = YES;
+				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
-				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				ENABLE_PREVIEWS = YES;
-				ENABLE_USER_SELECTED_FILES = readwrite;
 				GCC_OPTIMIZATION_LEVEL = 3;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Config/Info.plist;
@@ -472,7 +554,6 @@
 				MARKETING_VERSION = 1.4.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.wonderassembly.compositor;
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				REGISTER_APP_GROUPS = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
@@ -567,6 +648,52 @@
 			};
 			name = Release;
 		};
+		C0DE15B1D6E0000000000008 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = "Config/compositor-mcp.entitlements";
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				DEVELOPMENT_TEAM = "";
+				CREATE_INFOPLIST_SECTION_IN_BINARY = YES;
+				CURRENT_PROJECT_VERSION = 35;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.5;
+				MARKETING_VERSION = 1.4;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.wonderassembly.compositor.mcp-bridge";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		C0DE15B1D6E0000000000009 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = "Config/compositor-mcp.entitlements";
+				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO;
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 3E4X3B9Z9T;
+				CREATE_INFOPLIST_SECTION_IN_BINARY = YES;
+				CURRENT_PROJECT_VERSION = 35;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.5;
+				MARKETING_VERSION = 1.4;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.wonderassembly.compositor.mcp-bridge";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -606,6 +733,15 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		C0DE15B1D6E0000000000007 /* Build configuration list for PBXNativeTarget "compositor-mcp" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C0DE15B1D6E0000000000008 /* Debug */,
+				C0DE15B1D6E0000000000009 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
@@ -617,6 +753,14 @@
 				minimumVersion = 2.10.0;
 			};
 		};
+		A1B2C3D4E5F6010000000001 /* XCRemoteSwiftPackageReference "swift-sdk" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/modelcontextprotocol/swift-sdk.git";
+			requirement = {
+				kind = upToNextMinorVersion;
+				minimumVersion = 0.12.1;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -624,6 +768,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 5A9C0D1E2F3A4B5C6D7E8F02 /* XCRemoteSwiftPackageReference "Sparkle" */;
 			productName = Sparkle;
+		};
+		A1B2C3D4E5F6010000000002 /* MCP */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A1B2C3D4E5F6010000000001 /* XCRemoteSwiftPackageReference "swift-sdk" */;
+			productName = MCP;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

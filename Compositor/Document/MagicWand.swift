@@ -96,10 +96,15 @@ extension EditorSession {
     /// the active layer or every visible layer, combined with the current selection by `mode`.
     /// Matching and tracing run off the main thread; the result is one undo step.
     func magicWand(at point: CGPoint, mode: SelectionMode) async {
+        await magicWand(at: point, mode: mode, settings: wandSettings)
+    }
+
+    /// The Magic Wand with `settings` in place of the options bar's, which stay as they are.
+    func magicWand(at point: CGPoint, mode: SelectionMode, settings: WandSettings) async {
         guard canEditSelection, !isProjectBusy, selectionMoveOrigin == nil, let document,
               point.x >= 0, point.y >= 0, point.x < document.size.width, point.y < document.size.height,
-              let sample = selectionSample(document, sampleAllLayers: wandSettings.sampleAllLayers) else { return }
-        let job = WandJob(image: sample, point: point, settings: wandSettings)
+              let sample = selectionSample(document, sampleAllLayers: settings.sampleAllLayers) else { return }
+        let job = WandJob(image: sample, point: point, settings: settings)
         isProjectBusy = true
         let result = await Task.detached(priority: .userInitiated) { () -> WandResult in
             do { return WandResult(path: try MagicWand.select(in: job.image, at: job.point, settings: job.settings), error: nil) }

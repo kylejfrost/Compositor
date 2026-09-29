@@ -1,0 +1,29 @@
+{
+  "skill_name": "compositor-variants-and-delivery",
+  "about": "Recipes scripts/skills-eval/replay_fixtures.py replays against the eval instance before the evals run: it writes each image at its path in the instance's Agent folder, runs each fixture's calls in order (each must succeed), and records the sha256 of every file left behind.",
+  "images": [
+    {"path": "eval-inputs/sale-photo.png", "width": 1600, "height": 1600, "kind": "radial_gradient", "from": "#ffe8a3", "to": "#e76f51"},
+    {"path": "eval-inputs/brand-mark.png", "width": 200, "height": 200, "kind": "checker", "from": "#264653", "to": "#ffffff", "cell": 25}
+  ],
+  "fixtures": [
+    {
+      "id": "spring-sale-master",
+      "description": "masters/spring-sale-master.comp: an approved 1080x1080 master with a full-bleed Photo, a Headline and a Subhead (point text), a CTA folder (rounded rectangle Button plus Label text) and a Logo. The document is closed afterwards.",
+      "outputs": ["masters/spring-sale-master.comp"],
+      "calls": [
+        {"tool": "new_document", "arguments": {"width": 1080, "height": 1080, "name": "spring-sale-master", "fill": "#fdf0d5"}},
+        {"tool": "add_image_layer", "arguments": {"path": "eval-inputs/sale-photo.png", "name": "Photo", "fit": "cover"}},
+        {"tool": "add_text_layer", "arguments": {"text": "Spring Sale", "x": 540, "y": 120, "anchor": "top", "name": "Headline", "style": {"font_name": "Helvetica-Bold", "font_size": 110, "color": "#264653", "alignment": "center"}}},
+        {"tool": "add_text_layer", "arguments": {"text": "Up to 30% off garden tools", "x": 540, "y": 270, "anchor": "top", "name": "Subhead", "style": {"font_name": "Helvetica", "font_size": 44, "color": "#264653", "alignment": "center"}}},
+        {"tool": "add_group", "arguments": {"name": "CTA"}},
+        {"tool": "add_shape", "arguments": {"kind": "rectangle", "rect": {"x": 390, "y": 860, "width": 300, "height": 90}, "corner_radius": 45, "color": "#264653", "name": "Button"}},
+        {"tool": "add_text_layer", "arguments": {"text": "Shop now", "x": 540, "y": 905, "anchor": "center", "name": "Label", "style": {"font_name": "Helvetica-Bold", "font_size": 36, "color": "#ffffff", "alignment": "center"}}},
+        {"tool": "add_image_layer", "arguments": {"path": "eval-inputs/brand-mark.png", "name": "Logo", "center": {"x": 980, "y": 980}}},
+        {"tool": "place_layer", "arguments": {"layer": "Logo", "parent": null}},
+        {"tool": "scale_layer_to_fit", "arguments": {"layer": "Logo", "rect": {"x": 940, "y": 940, "width": 80, "height": 80}, "mode": "contain"}},
+        {"tool": "save_document_as", "arguments": {"path": "masters/spring-sale-master.comp"}},
+        {"tool": "close_document", "arguments": {}}
+      ]
+    }
+  ]
+}

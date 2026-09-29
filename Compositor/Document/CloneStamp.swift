@@ -46,4 +46,16 @@ extension EditorSession {
         guard let image = context.makeImage() else { return nil }
         return (image, CGRect(x: -offset.width, y: -offset.height, width: CGFloat(image.width), height: CGFloat(image.height)), false)
     }
+
+    /// A headless Clone Stamp sample uses the requested layer or visible composite at document size.
+    func cloneSample(_ document: CanvasDocument, layer: ImageLayer? = nil, sampleAll: Bool? = nil) -> CGImage? {
+        guard let context = try? BrushRaster.context(width: document.width, height: document.height, mask: false) else { return nil }
+        if sampleAll ?? cloneSettings.sampleAllLayers {
+            drawLiveComposite(document, in: context)
+        } else if let layer = layer ?? activeLayer, let image = layer.asset?.image {
+            let transform = displayedTransform(for: layer)
+            LayerRenderer.draw(image, transform: transform, center: transform.center, in: context)
+        }
+        return context.makeImage()
+    }
 }

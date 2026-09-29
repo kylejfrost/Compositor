@@ -257,10 +257,21 @@ struct DistortPreviewCache {
 extension EditorSession {
     /// Cmd-drag on a transform handle: the corners start moving freely. Each distortion resamples
     /// the pixels, so the edit then waits for Apply rather than applying on mouse-up.
-    func beginDistort() {
-        guard let edit = transformEdit, edit.corners == nil, edit.draft.isValid else { return }
+    ///
+    /// Resampling replaces the pixels (and drops a smart object's contents), so a layer whose pixels are locked —
+    /// any member of a group transform, or the mask alone under Lock All — refuses it: the edit stays an ordinary
+    /// transform and `brushError` says why. Returns false then, so the canvas doesn't carry on with the drag.
+    @discardableResult
+    func beginDistort() -> Bool {
+        guard let edit = transformEdit, edit.corners == nil, edit.draft.isValid else { return true }
+        let ids = edit.group.map { Array($0.originals.keys) } ?? [edit.layerID]
+        for id in ids {
+            guard let layer = document?.layers.first(where: { $0.id == id }) else { continue }
+            guard pixelsUnlocked(layer, mask: edit.mask) else { return false }
+        }
         transformEdit = TransformEdit(layerID: edit.layerID, draft: edit.draft, persistent: true, floating: edit.floating,
                                       corners: DistortWarp.corners(of: edit.draft), mask: edit.mask, group: edit.group)
+        return true
     }
 
     /// Moves the distortion's corners; a twisted or collapsed shape is ignored.
@@ -350,6 +361,11 @@ extension EditorSession {
         for id in ids {
             guard let index = document?.layers.firstIndex(where: { $0.id == id }), let layer = document?.layers[index],
                   let target = distortTarget(for: layer, edit: edit, shape: shape) else { continue }
+            // Locked since the distortion began: that layer keeps its pixels, the others are distorted.
+            do { try checkUnlocked(layer, mask: false) } catch {
+                brushError = error.localizedDescription
+                continue
+            }
             // The effects warped for this distortion are already in hand: keep showing them until the worker has
             // rendered the effects for the layer's new pixels, or they blink off for a frame on Apply.
             let warpedEffects = effectsPreviews.rendered(id)
@@ -395,5 +411,8 @@ extension EditorSession {
         document?.layers[index].asset = asset
         document?.layers[index].transform = warped.transform
         document?.layers[index].mask = mask
+        // Resampled pixels no longer show the contents where the smart object places them: as any pixel edit, a
+        // distortion leaves plain pixels.
+        document?.layers[index].smartObject = nil
     }
 }

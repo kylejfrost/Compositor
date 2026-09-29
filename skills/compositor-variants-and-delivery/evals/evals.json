@@ -1,0 +1,48 @@
+{
+  "skill_name": "compositor-variants-and-delivery",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "masters/spring-sale-master.comp (in Compositor's Agent folder) is approved. Make the rest of the social kit from it: an Instagram feed version (1080x1350), a story (1080x1920) and a link-preview image (1200x628). JPEGs in out/spring-sale/, sensibly named. Don't change the master.",
+      "expected_output": "Plans the three variants, duplicates the master for each, extends or crops the canvas with a background fill or re-covered photo, re-places the headline, subhead, CTA and logo inside each format's safe area (the story's text between y 250 and 1580), renders each, exports three JPEGs with the size in their names, verifies their pixel sizes, and leaves the master unchanged.",
+      "files": [],
+      "fixtures": ["spring-sale-master"],
+      "expectations": [
+        "out/spring-sale/ holds three JPEGs whose pixel sizes are exactly 1080x1350, 1080x1920 and 1200x628 (sips), each file name containing its size or its variant name",
+        "masters/spring-sale-master.comp/manifest.json has the same sha256 as before the run",
+        "The transcript shows duplicate_document (or saving copies) before any canvas change, and no resize_canvas, crop or resize_image call on the master's own document",
+        "In the story variant, the Headline, Subhead and CTA content_bounds (get_layer_bounds, or get_document with detail full, in the transcript) lie between y 250 and y 1580; not their bounds or transforms (a text box adds 12 px of padding, and a folder's transform is canvas-sized)",
+        "No exported variant has transparent or empty areas: the transcript shows a resize_canvas fill, a re-covered photo (scale_layer_to_fit cover) or a background layer for each new canvas area",
+        "The transcript shows a render_document for each variant before its export_image, and a check of the exported files' pixel sizes"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "From the spring sale master (masters/spring-sale-master.comp in Compositor's Agent folder), make three localized square versions with the headline and subhead translated: Spanish (\"Rebajas de primavera\" / \"Hasta 30% de descuento en herramientas de jardín\"), German (\"Frühlingsangebot\" / \"Bis zu 30 % Rabatt auf Gartengeräte\") and French (\"Soldes de printemps\" / \"Jusqu'à 30 % de réduction sur les outils de jardin\"). PNG, into out/spring-sale/localized/ in the Agent folder.",
+      "expected_output": "Duplicates the master per language, sets both texts with set_text, keeps them on the canvas inside the margins (fit_text or a line break for the long subheads), re-centers them, renders each, exports three 1080x1080 PNGs named with the language, and leaves the master unchanged.",
+      "files": [],
+      "fixtures": ["spring-sale-master"],
+      "expectations": [
+        "out/spring-sale/localized/ holds three 1080x1080 PNGs whose names identify es, de and fr (or Spanish, German, French)",
+        "The transcript shows set_text on the Headline and Subhead layers of three separate duplicated documents with exactly the given strings (accents intact)",
+        "For each language, the Subhead layer's letters after editing lie within x 40 to 1040: its content_bounds (get_layer_bounds in the transcript), or its text width (get_text_metrics width times scale.x) at most 1000 when centered at 540; not its bounds, which add 12 px of padding on each side. fit_text or a line break is used if needed",
+        "Each Headline and Subhead is horizontally centered within 2 px of x 540 after editing",
+        "masters/spring-sale-master.comp/manifest.json has the same sha256 as before the run"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Package the spring sale master (masters/spring-sale-master.comp in Compositor's Agent folder) for our designer: a layered file they can open, a PNG at 2x for the website, and a contact sheet showing the PNG next to a 1080x1350 JPEG version. Put it all in out/spring-sale/handoff/ in the Agent folder and tell me exactly what's there.",
+      "expected_output": "Saves a layered copy (PSD when the build supports it, with warnings passed on and psd-verify run; otherwise .comp) under a new name, exports a 2160x2160 PNG with scale 2, makes the 1080x1350 JPEG from a duplicate, builds a contact sheet document with both images placed with contain and labeled, exports it, and reports a table of files with sizes.",
+      "files": [],
+      "fixtures": ["spring-sale-master"],
+      "expectations": [
+        "out/spring-sale/handoff/ contains a PNG of exactly 2160 x 2160 pixels (export_image scale 2 in the transcript)",
+        "out/spring-sale/handoff/ contains a 1080 x 1350 JPEG and a layered file (.psd or .comp) that is not the master",
+        "If the layered file is a .psd, psd-verify.py exits 0 on it and the final answer passes on any save warnings; if it is a .comp, the answer says why not a PSD",
+        "A contact-sheet PNG exists in out/spring-sale/handoff/ and the transcript shows add_image_layer for both deliverables followed by scale_layer_to_fit with mode contain",
+        "The final answer lists every file with its pixel size, and masters/spring-sale-master.comp/manifest.json has the same sha256 as before the run"
+      ]
+    }
+  ]
+}

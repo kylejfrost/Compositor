@@ -1,0 +1,28 @@
+{
+  "skill_name": "compositor",
+  "about": "Recipes scripts/skills-eval/replay_fixtures.py replays against the eval instance before the evals run: it writes each image at its path in the instance's Agent folder, runs each fixture's calls in order as tools/call (each must succeed), and records the sha256 of every file a fixture leaves behind, so expectations can check what the agent must not change.",
+  "images": [
+    {"path": "eval-inputs/badge.png", "width": 240, "height": 240, "kind": "radial_gradient", "from": "#ffd166", "to": "#ef476f"},
+    {"path": "eval-inputs/logo.png", "width": 160, "height": 160, "kind": "checker", "from": "#ffffff", "to": "#118ab2", "cell": 20}
+  ],
+  "fixtures": [
+    {
+      "id": "promo-draft",
+      "description": "promo-draft.comp in the Agent folder: a 1080x1080 navy canvas with a Badge image layer, a Headline text layer, a top-level Logo and a second Logo inside the position-locked folder Footer; plus exports/promo-draft.png, a teammate's earlier export. The document is closed afterwards.",
+      "outputs": ["promo-draft.comp", "exports/promo-draft.png"],
+      "calls": [
+        {"tool": "new_document", "arguments": {"width": 1080, "height": 1080, "name": "promo-draft", "fill": "#0b1f3a"}},
+        {"tool": "add_image_layer", "arguments": {"path": "eval-inputs/badge.png", "name": "Badge", "center": {"x": 860, "y": 220}}},
+        {"tool": "add_text_layer", "arguments": {"text": "Spring Sale", "x": 540, "y": 420, "anchor": "center", "name": "Headline", "style": {"font_name": "Helvetica-Bold", "font_size": 96, "color": "#ffffff"}}},
+        {"tool": "add_image_layer", "arguments": {"path": "eval-inputs/logo.png", "name": "Logo", "center": {"x": 140, "y": 140}}},
+        {"tool": "add_group", "arguments": {"name": "Footer"}},
+        {"tool": "add_image_layer", "arguments": {"path": "eval-inputs/logo.png", "name": "Logo", "center": {"x": 540, "y": 990}}, "note": "added while the folder is active, so it lands inside Footer; the next call makes sure"},
+        {"tool": "place_layer", "arguments": {"layer": "@active", "parent": "Footer"}},
+        {"tool": "set_layer_locks", "arguments": {"layer": "Footer", "position": true}},
+        {"tool": "save_document_as", "arguments": {"path": "promo-draft.comp"}},
+        {"tool": "export_image", "arguments": {"path": "exports/promo-draft.png"}},
+        {"tool": "close_document", "arguments": {}}
+      ]
+    }
+  ]
+}

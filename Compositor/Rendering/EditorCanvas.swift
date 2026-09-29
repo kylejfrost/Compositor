@@ -516,7 +516,11 @@ final class CanvasView: NSView {
             /// Moving a layer into or out of a masked folder changes how it is clipped.
             let parentID: UUID?
             let visible: Bool
+            /// The effects' opacity, folders included (`effectiveOpacity`). Kept apart from the pixels' opacity: at
+            /// Fill 0 the pixels stay at 0 while the opacity still changes how strong a stroke or shadow is.
             let opacity: Double
+            /// The layer's own Fill, which with `opacity` gives the pixels' opacity (`pixelOpacity`).
+            let fillOpacity: Double
             let blendMode: LayerBlendMode
             let adjustment: LayerAdjustment?
             let effects: LayerEffects?
@@ -535,6 +539,7 @@ final class CanvasView: NSView {
             let id: UUID
             let maskID: ObjectIdentifier?
             let transform: LayerTransform
+            var maskPlacement: LayerTransform? = nil
         }
         let folderMasks: [FolderMask]
         /// The text being typed, which the canvas draws as pixels.
@@ -568,14 +573,15 @@ final class CanvasView: NSView {
         let state = DisplayState(brushRevision: session.brushRevision, pixelGrid: session.showsPixelGrid, documentID: document?.id, size: document?.size, renderBounds: renderBounds, viewport: session.viewport,
             layers: (document.map { $0.layers.contains(where: { $0.maskSourceID != nil }) ? $0.layers : $0.renderLayers } ?? []).filter { $0.asset != nil || $0.adjustment != nil }.map {
                 DisplayState.Layer(id: $0.id, transform: session.displayedTransform(for: $0),
-                                   imageID: $0.asset.map { ObjectIdentifier($0.image) }, maskID: $0.mask?.enabledImage.map { ObjectIdentifier($0) }, maskSourceID: $0.maskSourceID, parentID: $0.parentID, visible: visible.contains($0.id), opacity: opacities[$0.id] ?? $0.opacity, blendMode: session.displayedBlendMode(for: $0), adjustment: $0.adjustment, effects: $0.effects,
+                                   imageID: $0.asset.map { ObjectIdentifier($0.image) }, maskID: $0.mask?.enabledImage.map { ObjectIdentifier($0) }, maskSourceID: $0.maskSourceID, parentID: $0.parentID, visible: visible.contains($0.id), opacity: opacities[$0.id] ?? $0.opacity, fillOpacity: LayerOpacity.fill($0.fillOpacity), blendMode: session.displayedBlendMode(for: $0), adjustment: $0.adjustment, effects: $0.effects,
                                    maskPlacement: session.displayedMaskPlacement(for: $0))
             },
             folderMasks: (document?.layers ?? []).filter { $0.isGroup && $0.mask != nil }.map {
                 DisplayState.FolderMask(id: $0.id, maskID: $0.mask?.enabledImage.map { ObjectIdentifier($0) },
-                                        transform: session.displayedTransform(for: $0))
-            }, textStyle: session.textDraft?.style, textTransform: session.textDraft == nil ? nil : inlineTextEditor?.shownTransform,
-            maskAlone: session.maskAloneLayer?.mask.map { ObjectIdentifier($0.asset.image) })
+                                         transform: session.displayedTransform(for: $0),
+                                         maskPlacement: session.displayedMaskPlacement(for: $0))
+             }, textStyle: session.textDraft?.style, textTransform: session.textDraft == nil ? nil : inlineTextEditor?.shownTransform,
+             maskAlone: session.maskAloneLayer?.mask.map { ObjectIdentifier($0.asset.image) })
         var changed = false
         if displayedState != state {
             if let previous = displayedState, previous.documentID == state.documentID,
@@ -989,13 +995,39 @@ final class CanvasView: NSView {
             guard let layer = byID[id] else { return }
             // Text being edited draws as it will be committed, in its place among the layers.
             if layer.id == session.textDraft?.layerID {
-                guard let shown = editedText(layer) else { return }
-                LayerRenderer.draw(shown.image, transform: shown.transform, center: center(shown.transform.center), scale: scale,
-                    opacity: layer.effectiveOpacity(in: byID), blendMode: blendMode(of: layer), mask: nil, in: context)
+                guard let text = draftText else { return }
+                let opacity = layer.effectiveOpacity(in: byID)
+                let fill = LayerOpacity.fill(layer.fillOpacity)
+                // Its effects stay on while it's edited, redone from the text as typed. Until a change has been redone,
+                // the last effects stand in under the new text rather than blinking off.
+                if let effects = layer.effects?.visible, !effects.isEmpty, effects.isValid {
+                    // Redone only when the text's pixels, its place or its effects change.
+                    if draftEffects?.image !== text.image || draftEffects?.effects != effects || draftEffects?.transform != text.transform {
+                        let mask = layer.mask.flatMap { owned -> CGImage? in
+                            guard let placement = owned.placement else { return owned.enabledImage }
+                            return owned.clipImage(placement: placement, over: text.transform,
+                                                   width: text.image.width, height: text.image.height, limit: 2048)
+                        }
+                        draftEffects = session.effectsPreviews.renderNow(image: text.image, mask: mask, effects: effects, fill: fill)
+                            .map { (text.image, effects, text.transform, $0.image, $0.inset) }
+                        draftEffectsSource = session.textDraft.map { (layer.id, $0.style) }
+                    }
+                    if let built = draftEffects {
+                        let grown = LayerEffectsRenderer.placed(text.transform, image: built.rendered, inset: built.inset)
+                        LayerRenderer.draw(built.rendered, transform: grown, center: center(grown.center), scale: scale,
+                            opacity: opacity, blendMode: blendMode(of: layer), mask: nil, in: context)
+                        return
+                    }
+                }
+                LayerRenderer.draw(text.image, transform: text.transform, center: center(text.transform.center), scale: scale,
+                    opacity: opacity * fill, blendMode: blendMode(of: layer), in: context)
                 return
             }
-            // A folder the layer sits in dims it along with everything else inside (see LayerOpacity).
+            // A folder the layer sits in dims it along with everything else inside (see LayerOpacity). An image of
+            // the layer with its effects draws at `opacity`, its pixels already at the layer's Fill inside it; the
+            // pixels drawn without effects draw at `pixelOpacity`.
             let opacity = layer.effectiveOpacity(in: byID)
+            let pixelOpacity = opacity * LayerOpacity.fill(layer.fillOpacity)
             let mode = session.displayedBlendMode(for: layer)
             if SeparableBlend.needsSurface(mode), normalBlendLayerID != id {
                 normalBlendLayerID = id
@@ -1012,7 +1044,7 @@ final class CanvasView: NSView {
                 let canvas = LayerTransform(origin: .zero, size: document.size)
                 let mask = layer.mask?.clipImage(placement: layer.maskTransform, over: canvas, width: warp.width, height: warp.height, limit: 2048)
                 LayerRenderer.draw(image, transform: canvas, center: center(canvas.center), scale: scale,
-                    opacity: opacity, blendMode: blendMode(of: layer), mask: mask, in: context)
+                    opacity: pixelOpacity, blendMode: blendMode(of: layer), mask: mask, in: context)
                 return
             }
             // A pending distortion shows the layer warped into its new shape — with its effects warped along with
@@ -1035,7 +1067,7 @@ final class CanvasView: NSView {
             }
             if stroke == nil, let distorted = session.distortPreview(for: layer) {
                 LayerRenderer.draw(distorted.image, transform: distorted.transform, center: center(distorted.transform.center),
-                    scale: scale, opacity: opacity, blendMode: blendMode(of: layer),
+                    scale: scale, opacity: pixelOpacity, blendMode: blendMode(of: layer),
                     mask: distorted.mask, in: context)
                 return
             }
@@ -1073,7 +1105,7 @@ final class CanvasView: NSView {
             }
             if stroke == nil, let shaped = session.shapeTransformPreview(for: layer, transform: transform) {
                 LayerRenderer.draw(shaped, transform: transform, center: center(transform.center), scale: scale,
-                    opacity: opacity, blendMode: blendMode(of: layer), mask: mask, in: context)
+                    opacity: pixelOpacity, blendMode: blendMode(of: layer), mask: mask, in: context)
             } else if let stroke, !stroke.isMask {
                 // The effects follow the paint: a surface kept at full resolution, redone only where the brush has
                 // just been (see LayerEffectsSurface). It already holds the wet pixels with the effects over them —
@@ -1098,7 +1130,7 @@ final class CanvasView: NSView {
                 TiledLayerRenderer.drawStroke(width: stroke.width, height: stroke.height, sourceRect: stroke.sourceRect,
                     patches: stroke.patches, image: previous?.raster == nil ? previous?.image : nil, raster: previous?.raster,
                     transform: transform, center: center(transform.center), scale: scale,
-                    opacity: opacity, blendMode: blendMode(of: layer),
+                    opacity: pixelOpacity, blendMode: blendMode(of: layer),
                     mask: mask, in: context)
             } else if let stroke, let placement = stroke.layer.mask?.placement {
                 // A mask on its own placement is painted in its own grid: the layer draws through the mask as the
@@ -1115,10 +1147,10 @@ final class CanvasView: NSView {
                 }
                 if let raster = stroke.layer.asset?.raster {
                     TiledLayerRenderer.drawRaster(raster, transform: transform, center: center(transform.center), scale: scale,
-                        opacity: opacity, blendMode: blendMode(of: layer), mask: preview, in: context)
+                        opacity: pixelOpacity, blendMode: blendMode(of: layer), mask: preview, in: context)
                 } else if let image = stroke.layer.asset?.image {
                     LayerRenderer.draw(image, transform: transform, center: center(transform.center), scale: scale,
-                        opacity: opacity, blendMode: blendMode(of: layer), mask: preview, in: context)
+                        opacity: pixelOpacity, blendMode: blendMode(of: layer), mask: preview, in: context)
                 }
             } else if let stroke {
                 // With effects on, the surface redoes them as the mask changes, so they stay on while it's painted.
@@ -1135,16 +1167,16 @@ final class CanvasView: NSView {
                     patches: stroke.patches, oldMask: stroke.layer.mask?.asset,
                     image: previous?.raster == nil ? previous?.image : nil, raster: previous?.raster,
                     transform: transform, center: center(transform.center), scale: scale,
-                    opacity: opacity, blendMode: blendMode(of: layer), in: context)
+                    opacity: pixelOpacity, blendMode: blendMode(of: layer), in: context)
             } else if let asset = layer.asset, let raster = asset.raster, session.hueSaturation?.previewImage(for: layer.id) == nil && session.levels?.previewImage(for: layer.id) == nil && session.filterEdit?.previewImage(for: layer.id) == nil {
                 TiledLayerRenderer.drawRaster(raster, transform: transform, center: center(transform.center), scale: scale,
-                    opacity: opacity, blendMode: blendMode(of: layer),
+                    opacity: pixelOpacity, blendMode: blendMode(of: layer),
                     mask: mask, in: context)
             } else if let image = session.filterEdit?.previewImage(for: layer.id) ?? session.levels?.previewImage(for: layer.id) ?? session.hueSaturation?.previewImage(for: layer.id) ?? layer.asset?.image {
                 // LayerRenderer picks a sharp reduction for the image and its mask itself.
                 LayerRenderer.draw(image, transform: transform,
                     center: center(transform.center), scale: scale,
-                    opacity: opacity, blendMode: blendMode(of: layer),
+                    opacity: pixelOpacity, blendMode: blendMode(of: layer),
                     mask: mask, in: context)
             }
         }
@@ -1166,7 +1198,7 @@ final class CanvasView: NSView {
         }
         let live = LiveMaskRenderer(bounds: context.boundingBoxOfClipPath, source: { byID[$0]?.maskSourceID }, drawOwn: drawOwnWithDraft)
         live.adjustment = { byID[$0]?.adjustment }
-        live.adjustmentOpacity = { byID[$0]?.effectiveOpacity(in: byID) ?? 1 }
+        live.adjustmentOpacity = { byID[$0]?.pixelOpacity(in: byID) ?? 1 }
         // Adjustments run on the surface's pixels, one per screen pixel (see AdjustmentSurface).
         live.adjustmentScale = scale * LayerRenderer.deviceScale(of: context)
         live.resolution = LayerRenderer.deviceScale(of: context)
@@ -1174,6 +1206,8 @@ final class CanvasView: NSView {
         live.adjustmentRegion = { rect in
             CGRect(x: (rect.minX - corner.x) / scale, y: (rect.minY - corner.y) / scale, width: rect.width / scale, height: rect.height / scale)
         }
+        // Drawing never waits for a profile's large table to bake on the main thread.
+        live.profileTables = .bakeInBackground
         let area = context.boundingBoxOfClipPath
         live.adjustmentClip = { [weak self] id, ctx in
             guard let self, let layer = byID[id], layer.mask?.isEnabled == true else { return }
@@ -1184,19 +1218,19 @@ final class CanvasView: NSView {
                 clip(ctx)
                 return
             }
-            if let image = layer.mask?.enabledImage {
-                FolderMaskClip(image: image, transform: layer.transform).apply(scale: scale, center: center(layer.transform.center), in: ctx)
+            if let clip = self.noPixelsMaskClip(layer, transform: layer.transform, scale: scale, reduced: false, in: ctx) {
+                clip.apply(scale: scale, center: center(layer.transform.center), in: ctx)
             }
         }
         live.prepareStacks(document.renderLayers.map(\.id), parent: { byID[$0]?.parentID }, blend: { byID[$0].map { session.displayedBlendMode(for: $0) } ?? .normal })
         FolderMaskClip.draw(document.renderLayers.map(\.id), parent: { byID[$0]?.parentID }, clip: { id in
-            guard let folder = byID[id], let mask = folder.mask, mask.isEnabled else { return nil }
+            guard let folder = byID[id], folder.mask?.isEnabled == true else { return nil }
             if let edit = liveMaskEdit(for: folder.id),
                let clip = liveFolderMaskClip(edit, area: area, scale: scale, center: center, in: context) {
                 return clip
             }
             let transform = session.displayedTransform(for: folder)
-            let clip = FolderMaskClip(image: displayImage(mask.asset.image, width: transform.size.width * scale, in: context), transform: transform)
+            guard let clip = noPixelsMaskClip(folder, transform: transform, scale: scale, reduced: true, in: context) else { return nil }
             let origin = center(transform.center)
             return { clip.apply(scale: scale, center: origin, in: $0) }
         }, in: context) { live.drawComposite($0, in: context) }
@@ -1278,8 +1312,10 @@ final class CanvasView: NSView {
     private func strokeSurface(layer: ImageLayer, stroke: BrushStroke, mask: CGImage?) -> LayerEffectsSurface? {
         guard let effects = layer.effects?.visible, !effects.isEmpty, effects.isValid else { return nil }
         let grid = CGSize(width: stroke.width, height: stroke.height)
-        if strokeSurface?.matches(layerID: layer.id, effects: effects, grid: grid, sourceRect: stroke.sourceRect) != true {
-            strokeSurface = LayerEffectsSurface(layerID: layer.id, effects: effects, grid: grid, sourceRect: stroke.sourceRect)
+        if strokeSurface?.matches(layerID: layer.id, effects: effects, fill: layer.fillOpacity, grid: grid,
+                                  sourceRect: stroke.sourceRect) != true {
+            strokeSurface = LayerEffectsSurface(layerID: layer.id, effects: effects, fill: layer.fillOpacity, grid: grid,
+                                                sourceRect: stroke.sourceRect)
         }
         guard let surface = strokeSurface else { return nil }
         if stroke.isMask {
@@ -1329,6 +1365,22 @@ final class CanvasView: NSView {
         return surface
     }
 
+    /// The clip a folder's or adjustment layer's mask makes on the canvas: the mask over the layer's grid (`reduced`,
+    /// sharply to about the size it's drawn), or, placed apart from the layer, resampled into that grid at about
+    /// that size, as a pixel layer's mask is in `drawOwn`.
+    private func noPixelsMaskClip(_ layer: ImageLayer, transform: LayerTransform, scale: CGFloat, reduced: Bool,
+                                  in context: CGContext) -> FolderMaskClip? {
+        guard let mask = layer.mask, let image = mask.enabledImage else { return nil }
+        guard let placement = session.displayedMaskPlacement(for: layer) else {
+            return FolderMaskClip(image: reduced ? displayImage(image, width: transform.size.width * scale, in: context) : image,
+                                  transform: transform)
+        }
+        let drawn = max(transform.size.width, transform.size.height) * scale * LayerRenderer.deviceScale(of: context)
+        let steady = pow(2, ceil(log2(max(64, drawn))))
+        return FolderMaskClip(mask, placement: placement, over: transform,
+                              limit: session.transformEdit != nil ? min(2048, steady) : steady)
+    }
+
     /// The raster edit painting this folder's mask, if one is in progress.
     private func liveMaskEdit(for id: UUID) -> BrushStroke? {
         [session.brushStroke, session.gradientEdit?.raster].compactMap { $0 }.first { $0.layer.id == id && $0.isMask }
@@ -1345,8 +1397,10 @@ final class CanvasView: NSView {
         let width = Int(abs(device.width).rounded(.up)), height = Int(abs(device.height).rounded(.up))
         guard width >= 1, height >= 1, width * height <= 64_000_000,
               let coverage = try? BrushRaster.context(width: width, height: height, mask: true) else { return nil }
-        // Outside the folder's mask bounds is hidden, as it is for a committed mask.
-        coverage.setFillColor(gray: 0, alpha: 1)
+        // Outside the mask's grid is what a committed mask shows there: hidden beyond one covering its layer (only
+        // off the canvas), its background beyond one placed apart (see `LayerMask.clipImage`).
+        let background = edit.layer.mask.flatMap { mask in mask.placement.map { _ in LayerMask.background(of: mask.asset.thumbnail) } }
+        coverage.setFillColor(gray: background ?? 0, alpha: 1)
         coverage.fill(CGRect(x: 0, y: 0, width: width, height: height))
         coverage.scaleBy(x: CGFloat(width) / rect.width, y: CGFloat(height) / rect.height)
         coverage.translateBy(x: -rect.minX, y: -rect.minY)
@@ -2194,8 +2248,10 @@ final class CanvasView: NSView {
         } else if session.tool == .move, [123, 124, 125, 126].contains(event.keyCode),
                   event.modifierFlags.intersection([.command, .control, .option]).isEmpty {
             let step: CGFloat = event.modifierFlags.contains(.shift) ? 10 : 1
-            session.nudgeLayer(dx: event.keyCode == 123 ? -step : event.keyCode == 124 ? step : 0,
-                               dy: event.keyCode == 126 ? -step : event.keyCode == 125 ? step : 0)
+            let moved = session.nudgeLayer(dx: event.keyCode == 123 ? -step : event.keyCode == 124 ? step : 0,
+                                           dy: event.keyCode == 126 ? -step : event.keyCode == 125 ? step : 0)
+            // A lock refusing the move is worth a beep; nothing to move is not.
+            if !moved, session.isTransformPositionLocked { NSSound.beep() }
         } else if (event.keyCode == 51 || event.keyCode == 117),
            event.modifierFlags.intersection([.command, .control, .option]).isEmpty {
             session.deleteKeyPressed()
@@ -2542,10 +2598,18 @@ final class CanvasView: NSView {
         if session.transformEdit == nil { session.beginTransform(persistent: false) }
         // Cmd-dragging a handle distorts, as in Photoshop; once distorted, handles keep distorting.
         if case .resize(let index) = mode, modifiers.contains(.command) || session.transformEdit?.corners != nil {
-            session.beginDistort()
+            // A locked layer refuses the distortion (the reason is shown): the handle doesn't turn into a resize.
+            guard session.beginDistort() else {
+                if session.transformEdit?.persistent == false { session.cancelTransform() }
+                return
+            }
             if session.transformEdit?.corners != nil { mode = .distort(index) }
         }
-        guard let transform = session.transformEdit?.draft else { return }
+        guard let transform = session.transformEdit?.draft else {
+            // A position lock holds the layer in place.
+            if session.isTransformPositionLocked { NSSound.beep() }
+            return
+        }
         transformDrag = TransformDrag(original: transform, start: pixel, mode: mode, originalCorners: session.transformEdit?.corners)
         switch mode {
         case .resize(let index): dragCursor = transformOverlay.geometry?.resizeCursor(for: index) ?? .arrow

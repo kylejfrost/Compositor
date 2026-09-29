@@ -1,0 +1,49 @@
+{
+  "skill_name": "compositor-layout-and-type",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Make an Instagram feed post in Compositor for the Acme Hardware Spring Workshop, Saturday April 11 at 10 am. Use the photo eval-inputs/workshop-photo.png (it's in Compositor's Agent folder) and our red, #c8102e. Put the PNG in out/spring-workshop-feed.png and keep a layered file I can tweak later.",
+      "expected_output": "Creates a 1080x1350 document, places the photo with cover (or scales it to its frame), adds a readable headline and date/time as text layers inside margins, uses #c8102e for an accent or band, checks contrast behind the text and legibility with renders (including a small one), exports a 1080x1350 PNG and saves a .comp.",
+      "files": [],
+      "fixtures": ["eval-inputs/workshop-photo.png"],
+      "expectations": [
+        "out/spring-workshop-feed.png exists and is 1080 x 1350 pixels",
+        "A layered .comp file was saved in the Agent folder, and it contains at least two text layers, one whose text includes 'Spring Workshop' and one with the date or time",
+        "Every text layer's content_bounds (get_layer_bounds, or get_document with detail full, in the transcript or run on the saved .comp) lies within x 40 to 1040 and y 40 to 1310; not its bounds or transform, which add 12 px of padding on each side",
+        "The photo layer was sized with add_image_layer fit 'cover' or scale_layer_to_fit mode 'cover' (transcript)",
+        "The transcript shows sample_colors or get_pixel_color over the area behind the headline, or the headline sits on an opaque color band or scrim layer",
+        "The transcript shows a render_document with max_size of 400 or less, or a render_region of the text, before export_image",
+        "Some layer uses the color #c8102e (a shape or text color, an effect, or a fill)"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "I need a 1080x1920 story graphic with this quote set in Georgia Italic: \"Every project we took on this spring came in on time, on budget, and better than the drawings.\" Attribute it to Endorser Name, Project Lead underneath in a smaller sans serif. Keep all the text out of the top 250 px and bottom 340 px, and export out/quote-story.png in Compositor's Agent folder.",
+      "expected_output": "Creates a 1080x1920 document, confirms Georgia-Italic is installed (check_fonts or list_fonts), sets the quote as paragraph text (box_size) or broken point text that doesn't overflow, adds the attribution smaller in a sans-serif, keeps both inside y 250 to 1580, verifies with get_text_metrics or get_layer_bounds and a render, and exports a 1080x1920 PNG.",
+      "files": [],
+      "fixtures": [],
+      "expectations": [
+        "out/quote-story.png exists and is 1080 x 1920 pixels",
+        "The transcript shows check_fonts or list_fonts before the quote layer is created, and the quote layer's font_name is Georgia-Italic",
+        "Every text layer's content_bounds lies between y 250 and y 1580 (get_layer_bounds, or get_document with detail full, in the transcript or run on the open document); not its bounds, which add 12 px of padding on each side",
+        "The quote's text layer does not overflow: get_text_metrics reports overflows false for it, or it is point text whose lines were broken with \\n",
+        "The attribution layer's font_size is smaller than the quote's and its font is a sans-serif face (not Georgia)"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "misaligned-promo.comp in Compositor's Agent folder looks sloppy: the headline is off-center and the three feature icons aren't evenly spaced or on one line. Fix just those things and save it as misaligned-promo-fixed.comp.",
+      "expected_output": "Opens the project, measures the headline and icons, centers the headline horizontally (by its visible pixels or its box), puts the three icons on one line and distributes them evenly (align_layers and distribute_layers), leaves the Footer Band and everything else untouched, renders to confirm, and saves a new project without touching the original.",
+      "files": [],
+      "fixtures": ["misaligned-promo"],
+      "expectations": [
+        "misaligned-promo-fixed.comp exists and misaligned-promo.comp's manifest.json has the same sha256 as before the run",
+        "In misaligned-promo-fixed.comp the Headline layer is centered within 1 px of x 540, either by its box (transform x + width / 2) or by its visible pixels (the center of its content_bounds)",
+        "The three Icon layers have the same transform y (within 1 px) and equal gaps between neighbours (within 1 px)",
+        "The Footer Band layer's transform is identical in both files",
+        "The transcript uses align_layers and/or distribute_layers (or set_layer_transform with computed positions) and a render after the fixes"
+      ]
+    }
+  ]
+}

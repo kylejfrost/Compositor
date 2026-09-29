@@ -116,28 +116,47 @@ extension EditorSession {
     /// same shape Remove Background masks out, as a selection instead.
     var canSelectSubject: Bool { canEditSelection && document != nil && !isProjectBusy }
 
-    func selectSubject(mode: SelectionMode = .replace) async {
+    /// What Select → Subject came to.
+    enum SubjectSelection: Equatable {
+        /// The subject is the selection.
+        case selected
+        /// Vision found no subject, or one with nothing to outline; the selection is as it was.
+        case notFound
+        /// It couldn't run, or failed (`brushError` says why).
+        case failed
+    }
+
+    /// Select → Subject. When nothing is found the app says so (Vision's message as an alert, or a beep for a subject
+    /// with nothing to outline) unless `reportingNothingFound` is false, for callers that report it themselves.
+    @discardableResult
+    func selectSubject(mode: SelectionMode = .replace, reportingNothingFound: Bool = true) async -> SubjectSelection {
         guard canSelectSubject, let document,
-              let context = try? BrushRaster.context(width: document.width, height: document.height, mask: false) else { return }
+              let context = try? BrushRaster.context(width: document.width, height: document.height, mask: false) else { return .failed }
         drawLiveComposite(document, in: context)
-        guard let shown = context.makeImage() else { return }
+        guard let shown = context.makeImage() else { return .failed }
         isProjectBusy = true
         let found = await Task.detached(priority: .userInitiated) { () -> Result<CGImage, Error> in
             do { return .success(try SubjectRemoval.subjectMask(shown, under: nil, settings: FilterSettings())) }
             catch { return .failure(error) }
         }.value
         isProjectBusy = false
-        guard self.document?.id == document.id else { return }
+        guard self.document?.id == document.id else { return .failed }
         switch found {
         case .failure(let error):
+            if !reportingNothingFound, error is SubjectRemoval.Failure { return .notFound }
             brushError = error.localizedDescription
+            return .failed
         case .success(let mask):
             // White where the subject is, so its outline is the selection.
-            guard let traced = MaskTracing.whitePixels(in: mask) else { NSSound.beep(); return }
+            guard let traced = MaskTracing.whitePixels(in: mask) else {
+                if reportingNothingFound { NSSound.beep() }
+                return .notFound
+            }
             var toDocument = BrushRaster.pixelToDocument(LayerTransform(origin: .zero, size: document.size),
                                                          width: mask.width, height: mask.height)
-            guard let outline = traced.copy(using: &toDocument) else { return }
+            guard let outline = traced.copy(using: &toDocument) else { return .failed }
             applySelection(outline, mode: mode, name: "Select Subject")
+            return .selected
         }
     }
 }

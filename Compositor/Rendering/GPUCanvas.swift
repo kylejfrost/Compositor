@@ -540,6 +540,10 @@ nonisolated enum GPUAdjustment {
                                      monochromatic: adjustment.resolvedNoiseMonochromatic, seed: adjustment.resolvedNoiseSeed)
         case .grain:
             return GPUNoise.addGrain(to: image, grain: adjustment.grain, scale: scale, mapping: mapping)
+        case .profile:
+            // A profile needs its own large lookup table. Use the canvas's CPU path until the GPU can apply it
+            // without baking that table on the main thread.
+            return nil
         }
     }
 

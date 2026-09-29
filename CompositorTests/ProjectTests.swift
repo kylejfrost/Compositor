@@ -309,4 +309,257 @@ struct ProjectTests {
         let centerPixel = try #require(styledBitmap.colorAt(x: 30, y: 30))
         #expect(centerPixel.redComponent > 0.9)
     }
+
+    @Test func projectSavedByThisBuildReopens() async throws {
+        let session = EditorSession(); session.createNewProject(width: 8, height: 8)
+        session.addAdjustment(.gaussianBlur)          // forces version 9 on save
+        let snapshot = try #require(session.projectSnapshot())
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID()).comp")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try await ProjectStore.shared.save(snapshot, to: url)
+        let loaded = try await ProjectStore.shared.load(from: url)   // throws ProjectError.version(9) today
+        #expect(loaded.manifest.version == ProjectManifest.current)
+    }
+
+    @Test func literalVersion9ManifestLoads() async throws {
+        let root = try temporaryFolder()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let session = EditorSession()
+        session.createDocument(width: 100, height: 80)
+        session.addBlankLayer()
+        let snapshot = try #require(session.projectSnapshot())
+        let url = root.appendingPathComponent("LiteralV9.comp")
+        try await ProjectStore.shared.save(snapshot, to: url)
+        var manifest = snapshot.manifest
+        manifest.version = 9
+        try JSONEncoder().encode(manifest).write(to: url.appendingPathComponent("manifest.json"))
+        let loaded = try await ProjectStore.shared.load(from: url)
+        #expect(loaded.manifest.version == 9)
+    }
+
+    // MARK: Format 10: Photoshop data, locks and fill
+
+    private func u32(_ value: UInt32) -> Data {
+        Data([UInt8(truncatingIfNeeded: value >> 24), UInt8(truncatingIfNeeded: value >> 16),
+              UInt8(truncatingIfNeeded: value >> 8), UInt8(truncatingIfNeeded: value)])
+    }
+
+    /// A document with a Photoshop layer (two blocks, blending ranges, every record field, locks, fill 0.5) inside
+    /// a folder whose section divider has blocks of its own, plus document resources, blocks and linked entries.
+    private func photoshopSession() -> (session: EditorSession, layer: UUID, folder: UUID) {
+        let folderID = UUID(), layerID = UUID()
+        let size = LayerTransform(origin: .zero, size: CGSize(width: 8, height: 6))
+        var text = LayerTextStyle()
+        text.content = "Imported"
+        let extras = PSDLayerExtras(
+            blocks: [PSDTaggedBlock(key: "shmd", data: Data([0, 0, 0, 1, 9, 8, 7])),
+                     PSDTaggedBlock(signature: "8B64", key: "zzzz", data: Data([1, 2, 3, 4]))],
+            blendingRanges: Data((0..<40).map { UInt8($0) }), blendKey: "diss", flags: 0x18, clippingByte: 0,
+            fillerByte: 7, maskFlags: 0x10, maskDefaultColor: 255, maskParameters: Data([0x01, 0xC8, 0, 0]),
+            layerID: 42, colorLabel: .violet, nameSource: "layr", importedName: "Painted",
+            importedText: text, importedTextAnchor: CGPoint(x: 0.25, y: 0.75), importedTextIsBox: true,
+            importedEffects: LayerEffects(), importedVisible: false, placeholder: "adjustment:brit",
+            trailingBytes: Data([0, 0, 0]))
+        let divider = PSDLayerExtras(blocks: [PSDTaggedBlock(key: "lsct", data: u32(3)), PSDTaggedBlock(key: "lyid", data: u32(11))],
+                                     blendingRanges: Data(count: 8), layerID: 11, colorLabel: .blue, importedName: "</Layer group>")
+        let folderExtras = PSDLayerExtras(blocks: [PSDTaggedBlock(key: "lsct", data: u32(2) + Data("8BIMnorm".utf8))],
+                                          layerID: 10, sectionDividerExtras: divider)
+        let session = EditorSession()
+        var document = CanvasDocument(width: 8, height: 6, layers: [
+            ImageLayer(id: layerID, asset: nil, name: "Painted", isVisible: true, transform: size, parentID: folderID,
+                       locks: [.transparency, .position, .artboardNesting, .all], fillOpacity: 0.5, psdExtras: extras),
+            ImageLayer(id: folderID, asset: nil, name: "Folder", isVisible: true, transform: size, isGroup: true,
+                       locks: LayerLocks(rawValue: 0x4000_0000), psdExtras: folderExtras)
+        ])
+        document.psdExtras = PSDDocumentExtras(
+            resources: [PSDImageResource(id: 1005, name: "", data: Data(count: 16)),
+                        PSDImageResource(id: 4000, name: "Plug-in", data: Data([1, 2, 3])),
+                        PSDImageResource(id: 2999, name: "", data: Data([7]), signature: "MeSa")],
+            globalBlocks: [PSDTaggedBlock(key: "Patt", data: Data([1, 2, 3, 4, 5])), PSDTaggedBlock(key: "Txt2", data: Data("engine".utf8))],
+            orphanLinkedEntries: [Data("liFD entry".utf8), Data([1, 2, 3])],
+            globalLayerMaskInfo: Data([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x80, 0]), colorModeData: Data([5, 6]),
+            channelCount: 4, alphaChannelNames: ["Alpha 1"], iccProfileDescription: "sRGB IEC61966-2.1",
+            globalLightAngle: 120, globalLightAltitude: 30, sourceFileName: "Client.psd", layerCountNegative: true)
+        session.document = document
+        return (session, layerID, folderID)
+    }
+
+    private func savedPhotoshopProject(in root: URL) async throws -> (url: URL, session: EditorSession, layer: UUID, folder: UUID) {
+        let (session, layer, folder) = photoshopSession()
+        let url = root.appendingPathComponent("Photoshop.comp")
+        try await ProjectStore.shared.save(try #require(session.projectSnapshot()), to: url)
+        return (url, session, layer, folder)
+    }
+
+    /// Rewrites `manifest.json` through `edit` (on its JSON object).
+    private func editManifest(_ url: URL, _ edit: (inout [String: Any]) throws -> Void) throws {
+        let file = url.appendingPathComponent("manifest.json")
+        var json = try #require(try JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any])
+        try edit(&json)
+        try JSONSerialization.data(withJSONObject: json).write(to: file)
+    }
+
+    private func editLayer(_ url: URL, _ id: UUID, _ edit: @escaping (inout [String: Any]) -> Void) throws {
+        try editManifest(url) { json in
+            var layers = try #require(json["layers"] as? [[String: Any]])
+            let index = try #require(layers.firstIndex { $0["id"] as? String == id.uuidString })
+            edit(&layers[index])
+            json["layers"] = layers
+        }
+    }
+
+    private func expectInvalid(_ url: URL, _ comment: String, sourceLocation: SourceLocation = #_sourceLocation) async {
+        do {
+            _ = try await ProjectStore.shared.load(from: url)
+            Issue.record("Accepted: \(comment)", sourceLocation: sourceLocation)
+        } catch ProjectError.invalid {
+        } catch {
+            Issue.record("\(comment): expected ProjectError.invalid, got \(error)", sourceLocation: sourceLocation)
+        }
+    }
+
+    @Test func photoshopDataLocksAndFillRoundTrip() async throws {
+        let root = try temporaryFolder()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (url, session, layerID, folderID) = try await savedPhotoshopProject(in: root)
+        let psd = url.appendingPathComponent("psd")
+        #expect(Set(try FileManager.default.contentsOfDirectory(atPath: psd.path)) == [
+            "\(layerID.uuidString).blocks", "\(folderID.uuidString).blocks", "\(folderID.uuidString).divider.blocks",
+            "document.blocks", "document.resources", "document.linked"])
+        // Sidecars are Photoshop's own wire format.
+        let original = try #require(session.document)
+        let blocks: [PSDTaggedBlock] = try PSDBlockFile.decodeBlocks(
+            Data(contentsOf: psd.appendingPathComponent("\(layerID.uuidString).blocks")), limit: 1 << 20)
+        #expect(blocks == original.layers[0].psdExtras?.blocks)
+        let resources: [PSDImageResource] = try PSDBlockFile.decodeResources(
+            Data(contentsOf: psd.appendingPathComponent("document.resources")), limit: 1 << 20)
+        #expect(resources == original.psdExtras?.resources)
+
+        let loaded = try await ProjectStore.shared.load(from: url)
+        #expect(loaded.manifest.version == ProjectManifest.current)
+        let reopened = EditorSession()
+        reopened.installProject(loaded, from: url)
+        let document = try #require(reopened.document)
+        #expect(document.psdExtras == original.psdExtras)
+        #expect(document.layers.map(\.psdExtras) == original.layers.map(\.psdExtras))
+        #expect(document.layers.map(\.locks) == original.layers.map(\.locks))
+        #expect(document.layers.map(\.fillOpacity) == [0.5, 1])
+        #expect(document.layers[1].psdExtras?.sectionDividerExtras?.blocks.count == 2)
+        // Undo history carries everything too.
+        reopened.renameLayer(layerID, to: "Renamed")
+        reopened.undo()
+        #expect(reopened.document == document)
+        // The manifest holds the scalars; the divider is a nested record, not an array.
+        let json = String(decoding: try Data(contentsOf: url.appendingPathComponent("manifest.json")), as: UTF8.self)
+        #expect(json.contains("\"sectionDivider\" : {") && json.contains("\"fillOpacity\" : 0.5"))
+        #expect(!json.contains("dividerStorage") && !json.contains("Patt"))
+    }
+
+    @Test func version9ManifestWithFormat10FieldsIsRejected() async throws {
+        let root = try temporaryFolder()
+        defer { try? FileManager.default.removeItem(at: root) }
+        for field in ["locks", "fillOpacity", "psd", "document psd"] {
+            let (url, _, layerID, _) = try await savedPhotoshopProject(in: root)
+            defer { try? FileManager.default.removeItem(at: url) }
+            try editManifest(url) { json in
+                json["version"] = 9
+                if field != "document psd" { json["psd"] = nil }
+            }
+            try editLayer(url, layerID) { layer in
+                for key in ["locks", "fillOpacity", "psd"] where key != field { layer[key] = nil }
+            }
+            // The folder keeps its own fields unless we're testing them one at a time.
+            try editManifest(url) { json in
+                var layers = try #require(json["layers"] as? [[String: Any]])
+                for i in layers.indices where layers[i]["id"] as? String != layerID.uuidString || field == "document psd" {
+                    layers[i]["locks"] = nil; layers[i]["fillOpacity"] = nil; layers[i]["psd"] = nil
+                }
+                json["layers"] = layers
+            }
+            await expectInvalid(url, "version 9 with \(field)")
+        }
+        // Without them, version 9 still opens.
+        let (url, _, _, _) = try await savedPhotoshopProject(in: root)
+        try editManifest(url) { json in
+            json["version"] = 9
+            json["psd"] = nil
+            var layers = try #require(json["layers"] as? [[String: Any]])
+            for i in layers.indices { layers[i]["locks"] = nil; layers[i]["fillOpacity"] = nil; layers[i]["psd"] = nil }
+            json["layers"] = layers
+        }
+        #expect(try await ProjectStore.shared.load(from: url).manifest.version == 9)
+    }
+
+    @Test func malformedPhotoshopSidecarsAreRejected() async throws {
+        let root = try temporaryFolder()
+        defer { try? FileManager.default.removeItem(at: root) }
+        func fresh() async throws -> (url: URL, layer: UUID, folder: UUID) {
+            let (url, _, layer, folder) = try await savedPhotoshopProject(in: root)
+            return (url, layer, folder)
+        }
+        func sidecar(_ url: URL, _ name: String) -> URL { url.appendingPathComponent("psd").appendingPathComponent(name) }
+
+        // A block whose length runs past the end of its sidecar.
+        var (url, layer, folder) = try await fresh()
+        var bad = try Data(contentsOf: sidecar(url, "\(layer.uuidString).blocks"))
+        bad.replaceSubrange(8..<12, with: u32(1_000))
+        try bad.write(to: sidecar(url, "\(layer.uuidString).blocks"))
+        await expectInvalid(url, "a block with a bad length")
+
+        // Trailing bytes, a missing sidecar, a truncated divider, bad resources and linked entries.
+        // Layer sidecar names are filled in per fresh project (each has new layer IDs).
+        for (pattern, change) in [("LAYER.blocks", "trailing"), ("FOLDER.divider.blocks", "missing"),
+                                  ("FOLDER.divider.blocks", "truncated"), ("document.resources", "trailing"),
+                                  ("document.blocks", "truncated"), ("document.linked", "truncated"), ("document.linked", "trailing")] {
+            try FileManager.default.removeItem(at: url)
+            (url, layer, folder) = try await fresh()
+            let name = pattern.replacingOccurrences(of: "LAYER", with: layer.uuidString)
+                .replacingOccurrences(of: "FOLDER", with: folder.uuidString)
+            let file = sidecar(url, name)
+            switch change {
+            case "missing": try FileManager.default.removeItem(at: file)
+            case "truncated": try Data(try Data(contentsOf: file).dropLast()).write(to: file)
+            default: try (Data(contentsOf: file) + Data([0x38])).write(to: file)
+            }
+            await expectInvalid(url, "\(change) \(name)")
+        }
+
+        // File names other than `<layer UUID>.blocks` (path traversal, another layer's, the wrong extension).
+        for name in ["../../outside.blocks", "\(folder.uuidString).blocks", "\(layer.uuidString).png", "/tmp/x.blocks"] {
+            try FileManager.default.removeItem(at: url)
+            (url, layer, folder) = try await fresh()
+            try editLayer(url, layer) { record in
+                var psd = record["psd"] as? [String: Any] ?? [:]
+                psd["blocksFile"] = name
+                record["psd"] = psd
+            }
+            await expectInvalid(url, "blocks file \(name)")
+        }
+        try FileManager.default.removeItem(at: url)
+        (url, layer, folder) = try await fresh()
+        try editManifest(url) { json in
+            var psd = try #require(json["psd"] as? [String: Any])
+            psd["resourcesFile"] = "../document.resources"
+            json["psd"] = psd
+        }
+        await expectInvalid(url, "document resources file name")
+
+        // Out-of-range values.
+        let edits: [(String, (inout [String: Any]) -> Void)] = [
+            ("fill above 1", { $0["fillOpacity"] = 1.5 }),
+            ("negative fill", { $0["fillOpacity"] = -0.1 }),
+            ("a five-character blend key", { var psd = $0["psd"] as? [String: Any] ?? [:]; psd["blendKey"] = "normal"; $0["psd"] = psd }),
+            ("oversized blending ranges", { var psd = $0["psd"] as? [String: Any] ?? [:]
+                psd["blendingRanges"] = Data(count: 5_000).base64EncodedString(); $0["psd"] = psd }),
+            ("a divider inside a divider", { var psd = $0["psd"] as? [String: Any] ?? [:]
+                psd["sectionDivider"] = ["blendKey": "norm", "sectionDivider": ["blendKey": "norm"]]; $0["psd"] = psd }),
+            ("negative locks", { $0["locks"] = -1 })
+        ]
+        for (comment, edit) in edits {
+            try FileManager.default.removeItem(at: url)
+            (url, layer, folder) = try await fresh()
+            try editLayer(url, layer, edit)
+            await expectInvalid(url, comment)
+        }
+    }
 }

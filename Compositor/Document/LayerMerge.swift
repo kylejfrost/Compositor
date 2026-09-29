@@ -1,10 +1,36 @@
 import AppKit
 
+/// Why Flatten Image or Rasterize Layer did not run.
+nonisolated enum LayerCommandError: LocalizedError {
+    /// The layer is gone, or layers can't be edited right now (a modal edit, import or long operation holds them).
+    case unavailable
+    /// Flattening would lose this many hidden layers, which the caller asked to keep.
+    case hiddenLayers(Int)
+    /// The named folder, adjustment layer or Photoshop placeholder has no pixels of its own.
+    case noPixels(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .unavailable: "The layers can't be edited right now."
+        case .hiddenLayers(let count): "Flattening would discard \(count) hidden layer\(count == 1 ? "" : "s")."
+        case .noPixels(let name): "'\(name)' has no pixels of its own to rasterize."
+        }
+    }
+}
+
 extension EditorSession {
     /// What ⌘E merges, in stacking order, and where the result goes; nil when there is nothing to merge.
     /// One layer merges with the layer beneath it in the same folder; several selected layers merge together
     /// (with anything their folders hold); a folder merges its contents, and the folder goes.
     private func mergePlan() -> (ids: [UUID], removed: Set<UUID>, name: String, parent: UUID?, anchor: UUID, action: String)? {
+        guard let plan = unguardedMergePlan(), let document else { return nil }
+        // A Photoshop placeholder has no pixels to merge and would be lost with the merged layers.
+        let placeholders = Set(document.layers.filter(\.isPhotoshopPlaceholder).map(\.id))
+        guard plan.removed.isDisjoint(with: placeholders), Set(plan.ids).isDisjoint(with: placeholders) else { return nil }
+        return plan
+    }
+
+    private func unguardedMergePlan() -> (ids: [UUID], removed: Set<UUID>, name: String, parent: UUID?, anchor: UUID, action: String)? {
         guard canEditLayers, let document, let active = activeLayer else { return nil }
         let layers = document.layers
         if selectedLayerIDs.count > 1 {
@@ -28,12 +54,15 @@ extension EditorSession {
 
     var canMergeLayers: Bool { mergePlan() != nil }
     var mergeTitle: String { mergePlan()?.action ?? "Merge Down" }
+    /// Every layer ⌘E would merge away, folders included; empty when there is nothing to merge.
+    var mergingLayerIDs: Set<UUID> { mergePlan()?.removed ?? [] }
 
     /// ⌘E: the layers composited as the canvas shows them — blend modes, opacity, masks, clipping and adjustments
     /// baked in — into one pixel layer, trimmed to what is there, in their place, as one undo step.
     func mergeLayers() {
         commitTransform()
-        guard let plan = mergePlan(), let document else { return }
+        guard let plan = mergePlan(), let document,
+              unlocked(document.layers.map(\.id).filter(plan.removed.contains), for: .pixels) else { return }
         let layers = document.layers
         let kept = Set(plan.ids)
         // Only the merged layers, cut loose from anything outside the merge.
@@ -67,6 +96,52 @@ extension EditorSession {
         beginEdit(plan.action)
         self.document?.layers = next
         activeLayerID = merged.id
+        endEdit()
+    }
+}
+
+extension EditorSession {
+    /// Flatten Image: the canvas exactly as export renders it replaces every layer as one full-canvas pixel layer,
+    /// "Background", with its transparency. Guides, the selection and the document's Photoshop data stay. Hidden
+    /// layers are discarded; with `discardHidden` false a document that has any is refused instead. Renders off the
+    /// main actor while the document is busy. One undo step, "Flatten Image".
+    func flattenImage(discardHidden: Bool = true) async throws {
+        guard canEditLayers, let document, let snapshot = projectSnapshot() else { throw LayerCommandError.unavailable }
+        if !discardHidden {
+            let visible = document.effectiveVisibleIDs
+            let hidden = document.layers.filter { !$0.isGroup && !visible.contains($0.id) }.count
+            guard hidden == 0 else { throw LayerCommandError.hiddenLayers(hidden) }
+        }
+        isProjectBusy = true
+        defer { isProjectBusy = false }
+        let raster = try await ImageExporter.shared.render(snapshot)
+        guard self.document == document else { throw LayerCommandError.unavailable }
+        let asset = ImportedImage(image: raster.image, thumbnail: try PixelAdjust.thumbnail(of: raster.image), name: "Background")
+        var flat = ImageLayer(asset: asset, origin: .zero)
+        flat.name = "Background"
+        finishOpacityEdit()
+        beginEdit("Flatten Image")
+        self.document?.layers = [flat]
+        collapsedGroupIDs = []
+        activeLayerID = flat.id
+        endEdit()
+    }
+
+    /// Rasterize Layer: a text or shape layer becomes the plain pixels it shows now, keeping its effects, mask, fill,
+    /// locks and every other property (see `ImageLayer.replacingPixels`). A layer that is plain pixels already is left
+    /// as it is. Folders, adjustment layers and Photoshop placeholders have no pixels of their own and throw. One undo
+    /// step, "Rasterize Layer".
+    func rasterizeLayer(_ id: UUID) throws {
+        guard canEditLayers, let index = document?.layers.firstIndex(where: { $0.id == id }),
+              let layer = document?.layers[index] else { throw LayerCommandError.unavailable }
+        guard !layer.isGroup, layer.adjustment == nil, !layer.isPhotoshopPlaceholder else {
+            throw LayerCommandError.noPixels(layer.name)
+        }
+        let raster = layer.replacingPixels(layer.asset, transform: layer.transform, mask: layer.mask)
+        guard raster != layer else { return }
+        finishOpacityEdit()
+        beginEdit("Rasterize Layer")
+        document?.layers[index] = raster
         endEdit()
     }
 }

@@ -80,6 +80,40 @@ struct HistoryTests {
         #expect(session.document?.size == CGSize(width: 300, height: 400))
     }
 
+    @Test func undoAndRedoNamesListTheNextEntryFirst() throws {
+        let session = EditorSession()
+        session.createDocument(width: 8, height: 8)
+        session.addBlankLayer()
+        let id = try #require(session.activeLayerID)
+        session.renameLayer(id, to: "Renamed")
+        #expect(session.history.undoNames == ["Rename Layer", "New Blank Layer", "New Canvas"])
+        #expect(session.history.redoNames.isEmpty)
+        session.undo()
+        session.undo()
+        #expect(session.history.undoNames == ["New Canvas"])
+        #expect(session.history.redoNames == ["New Blank Layer", "Rename Layer"])
+        session.redo()
+        #expect(session.history.undoNames == ["New Blank Layer", "New Canvas"] && session.history.redoNames == ["Rename Layer"])
+    }
+
+    @Test func isEditingWhileAnyEditIsOpenAndNestedEditsRecordUnderTheOuterName() {
+        let history = DocumentHistory()
+        let start = CanvasDocument(width: 4, height: 4)
+        #expect(!history.isEditing)
+        history.begin("Outer", document: start, selection: nil)
+        #expect(history.isEditing)
+        history.begin("Inner", document: start, selection: nil)
+        let changed = CanvasDocument(width: 8, height: 8)
+        history.end(document: changed, selection: nil)
+        #expect(history.isEditing && history.undoCount == 0)
+        history.end(document: changed, selection: nil)
+        #expect(!history.isEditing && history.undoNames == ["Outer"])
+        history.reset()
+        history.begin("Left open", document: start, selection: nil)
+        history.reset()
+        #expect(!history.isEditing)
+    }
+
     @Test func historyBlockedDuringImportsAndDialogs() {
         let session = EditorSession()
         session.createDocument(width: 40, height: 40)

@@ -12,6 +12,10 @@ xcuserdata/
 # macOS
 .DS_Store
 
+# Python caches from the script and skill tests
+__pycache__/
+.pytest_cache/
+
 # Signing material and secrets — never commit
 *.p12
 *.p8
@@ -22,3 +26,9 @@ xcuserdata/
 # Claude Code settings personal to this machine
 .claude/settings.local.json
 BUILD_PLAN.md
+
+# Skill evaluation runs (skill-creator workspaces): transcripts, outputs, benchmarks
+skills-workspace/
+
+# LLVM coverage output written when an instrumented test host runs from the checkout
+*.profraw

@@ -49,6 +49,8 @@ struct NativeLayerList: NSViewRepresentable {
         let session: EditorSession
         private var rows: [ImageLayer] = []
         private var rowDetails: [UUID: LayerHierarchy.Entry] = [:]
+        /// Each row's locks, a folder's included (`CanvasDocument.effectiveLocksByID`).
+        private var rowLocks: [UUID: LayerLocks] = [:]
         private var oldCollapsed: Set<UUID> = []
         private var editingEnabled = false
         private var synchronizing = false
@@ -60,6 +62,8 @@ struct NativeLayerList: NSViewRepresentable {
             let next = entries.compactMap { byID[$0.layer.id] }
             let previousDetails = rowDetails
             rowDetails = Dictionary(uniqueKeysWithValues: entries.map { ($0.layer.id, $0) })
+            let previousLocks = rowLocks
+            rowLocks = session.document?.effectiveLocksByID ?? [:]
             let expansionChanged = oldCollapsed != session.collapsedGroupIDs
             oldCollapsed = session.collapsedGroupIDs
             let enabled = session.canEditLayers
@@ -74,7 +78,8 @@ struct NativeLayerList: NSViewRepresentable {
             } else {
                 // Selection never reloads cells or recreates thumbnails.
                 let changed = IndexSet(next.indices.filter {
-                    editableChanged || expansionChanged || (old[$0].name != next[$0].name || old[$0].isVisible != next[$0].isVisible || old[$0].size != next[$0].size || old[$0].parentID != next[$0].parentID || old[$0].isGroup != next[$0].isGroup || old[$0].asset?.image !== next[$0].asset?.image || (old[$0].liveText != nil) != (next[$0].liveText != nil) || old[$0].effects != next[$0].effects || old[$0].mask != next[$0].mask || old[$0].maskSourceID != next[$0].maskSourceID) || previousDetails[next[$0].id]?.depth != rowDetails[next[$0].id]?.depth || previousDetails[next[$0].id]?.visible != rowDetails[next[$0].id]?.visible
+                    editableChanged || expansionChanged || (old[$0].name != next[$0].name || old[$0].isVisible != next[$0].isVisible || old[$0].size != next[$0].size || old[$0].parentID != next[$0].parentID || old[$0].isGroup != next[$0].isGroup || old[$0].asset?.image !== next[$0].asset?.image || (old[$0].liveText != nil) != (next[$0].liveText != nil) || (old[$0].smartObject != nil) != (next[$0].smartObject != nil) || old[$0].effects != next[$0].effects || old[$0].mask != next[$0].mask || old[$0].maskSourceID != next[$0].maskSourceID) || previousDetails[next[$0].id]?.depth != rowDetails[next[$0].id]?.depth || previousDetails[next[$0].id]?.visible != rowDetails[next[$0].id]?.visible
+                        || previousLocks[next[$0].id] != rowLocks[next[$0].id]
                 })
                 let resized = IndexSet(next.indices.filter { (old[$0].effects?.kinds.count ?? 0) != (next[$0].effects?.kinds.count ?? 0) })
                 // Adding or removing an effect only changes how tall a row is. Left to AppKit that is animated, and
@@ -335,7 +340,8 @@ struct NativeLayerList: NSViewRepresentable {
             let identifier = NSUserInterfaceItemIdentifier("layerCell")
             let cell = tableView.makeView(withIdentifier: identifier, owner: self) as? LayerCell ?? LayerCell()
             cell.identifier = identifier
-            cell.configure(rows[row], enabled: editingEnabled, session: session, depth: rowDetails[rows[row].id]?.depth ?? 0, visible: rowDetails[rows[row].id]?.visible ?? true)
+            cell.configure(rows[row], enabled: editingEnabled, session: session, depth: rowDetails[rows[row].id]?.depth ?? 0, visible: rowDetails[rows[row].id]?.visible ?? true,
+                           locks: rowLocks[rows[row].id] ?? [])
             return cell
         }
         func tableViewSelectionDidChange(_ notification: Notification) {
@@ -436,6 +442,9 @@ struct NativeLayerList: NSViewRepresentable {
             return place([id], at: row, intoFolder: false, copying: false)
         }
         private func place(_ ids: [UUID], at row: Int, intoFolder: Bool, copying: Bool) -> Bool {
+            // Asked before the edit opens: a drop that can't land (an agent's batch holds the history, say) must not
+            // open one, or it counts as the app editing inside the batch's step.
+            guard session.canEditLayers else { return false }
             // Where the drop lands is worked out once: each layer placed shifts the rows beneath it.
             let current = session.layerRows
             let parent: UUID?, above: UUID?, atBottom: Bool
@@ -742,8 +751,10 @@ final class LayerTableView: NSTableView {
         // With the Move tool the arrows move the layer, as on the canvas, rather than changing the row selection.
         } else if plain, session?.transformEdit != nil || session?.tool == .move, [123, 124, 125, 126].contains(event.keyCode) {
             let step: CGFloat = event.modifierFlags.contains(.shift) ? 10 : 1
-            session?.nudgeLayer(dx: event.keyCode == 123 ? -step : event.keyCode == 124 ? step : 0,
-                                dy: event.keyCode == 126 ? -step : event.keyCode == 125 ? step : 0)
+            let moved = session?.nudgeLayer(dx: event.keyCode == 123 ? -step : event.keyCode == 124 ? step : 0,
+                                            dy: event.keyCode == 126 ? -step : event.keyCode == 125 ? step : 0)
+            // A lock refusing the move is worth a beep; nothing to move is not.
+            if moved == false, session?.isTransformPositionLocked == true { NSSound.beep() }
         } else if [51, 117].contains(event.keyCode), plain {
             session?.deleteKeyPressed()
         } else { super.keyDown(with: event) }
@@ -764,6 +775,10 @@ private final class LayerCell: NSTableCellView, NSTextFieldDelegate {
     private let disabledMaskMark = MaskDisabledMark(labelWithString: "╱")
     /// Between the thumbnails: the chain while layer and mask are linked, empty (still clickable) once unlinked.
     private let linkButton = NSButton()
+    /// At the row's end, as in Photoshop: a lock when the layer is locked, solid for Lock All. Clicking it unlocks
+    /// the layer; a layer locked only by its folder shows it dimmed.
+    private let lockButton = NSButton()
+    private var nameTrailing: NSLayoutConstraint!
     private var maskGap: NSLayoutConstraint!
     /// The chain symbol runs corner to corner; turned 45° counterclockwise it stands upright in a narrow gap.
     private static let linkImage: NSImage? = {
@@ -832,6 +847,11 @@ private final class LayerCell: NSTableCellView, NSTextFieldDelegate {
         linkButton.contentTintColor = .secondaryLabelColor
         linkButton.target = self
         linkButton.action = #selector(toggleMaskLink)
+        lockButton.isBordered = false
+        lockButton.title = ""
+        lockButton.imagePosition = .imageOnly
+        lockButton.target = self
+        lockButton.action = #selector(unlock)
         disabledMaskMark.font = .systemFont(ofSize: 32, weight: .medium)
         disabledMaskMark.textColor = .systemRed
         disabledMaskMark.isHidden = true
@@ -842,7 +862,7 @@ private final class LayerCell: NSTableCellView, NSTextFieldDelegate {
         nameLabel.font = .systemFont(ofSize: 13)
         dimensions.font = .systemFont(ofSize: 10)
         dimensions.textColor = .secondaryLabelColor
-        for view in [eye, disclosure, thumbnail, linkButton, maskThumbnail, disabledMaskMark, nameLabel, dimensions] {
+        for view in [eye, disclosure, thumbnail, linkButton, maskThumbnail, disabledMaskMark, nameLabel, dimensions, lockButton] {
             view.translatesAutoresizingMaskIntoConstraints = false
             addSubview(view)
         }
@@ -863,6 +883,7 @@ private final class LayerCell: NSTableCellView, NSTextFieldDelegate {
         thumbnailHeight = thumbnail.heightAnchor.constraint(equalToConstant: 36)
         maskThumbnailWidth = maskThumbnail.widthAnchor.constraint(equalToConstant: 30)
         maskThumbnailHeight = maskThumbnail.heightAnchor.constraint(equalToConstant: 30)
+        nameTrailing = nameLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8)
         NSLayoutConstraint.activate([
             eye.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
             eye.centerYAnchor.constraint(equalTo: topAnchor, constant: 26),
@@ -888,7 +909,10 @@ private final class LayerCell: NSTableCellView, NSTextFieldDelegate {
             disabledMaskMark.centerXAnchor.constraint(equalTo: maskThumbnail.centerXAnchor),
             disabledMaskMark.centerYAnchor.constraint(equalTo: maskThumbnail.centerYAnchor),
             nameLabel.leadingAnchor.constraint(equalTo: maskSlot.trailingAnchor, constant: 5),
-            nameLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            nameTrailing,
+            lockButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            lockButton.centerYAnchor.constraint(equalTo: topAnchor, constant: 26),
+            lockButton.widthAnchor.constraint(equalToConstant: 14), lockButton.heightAnchor.constraint(equalToConstant: 20),
             nameLabel.topAnchor.constraint(equalTo: topAnchor, constant: 9),
             dimensions.leadingAnchor.constraint(equalTo: nameLabel.leadingAnchor),
             dimensions.trailingAnchor.constraint(equalTo: nameLabel.trailingAnchor),
@@ -897,7 +921,7 @@ private final class LayerCell: NSTableCellView, NSTextFieldDelegate {
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-    func configure(_ layer: ImageLayer, enabled: Bool, session: EditorSession, depth: Int, visible: Bool) {
+    func configure(_ layer: ImageLayer, enabled: Bool, session: EditorSession, depth: Int, visible: Bool, locks: LayerLocks = []) {
         self.session = session
         for row in effectButtons { effectRows.removeArrangedSubview(row); row.removeFromSuperview() }
         effectButtons = (layer.effects?.kinds ?? []).map { kind in
@@ -919,14 +943,16 @@ private final class LayerCell: NSTableCellView, NSTextFieldDelegate {
         // editable text, adjustments and folders keep a square icon. Pictures redraw only when what they show changes.
         let canvas = session.document?.size ?? CGSize(width: 1, height: 1)
         let editableText = layer.liveText != nil
-        let framed = layer.adjustment == nil && !layer.isGroup && !editableText
+        let placeholder = layer.isPhotoshopPlaceholder
+        let framed = layer.adjustment == nil && !layer.isGroup && !editableText && !placeholder
         let layerSize = framed ? CanvasThumbnail.fittedSize(canvas: canvas, box: 36) : CGSize(width: 36, height: 36)
         thumbnailWidth.constant = layerSize.width
         thumbnailHeight.constant = layerSize.height
-        let key = ThumbnailKey(image: layer.asset.map { ObjectIdentifier($0.thumbnail) }, transform: layer.transform, canvas: canvas, editableText: editableText)
+        let key = ThumbnailKey(image: layer.asset.map { ObjectIdentifier($0.thumbnail) }, transform: layer.transform, canvas: canvas, editableText: editableText, placeholder: placeholder)
         if layerID != layer.id || thumbnailKey != key {
             thumbnail.image = layer.adjustment.map { Self.adjustmentIcon($0.kind.symbol, description: $0.kind.rawValue, quarterTurnClockwise: $0.kind == .curves) }
                 ?? (layer.isGroup ? Self.folderIcon
+                    : placeholder ? Self.adjustmentIcon("circle.lefthalf.filled", description: "Photoshop-only layer")
                     : editableText ? Self.adjustmentIcon("textformat", description: "Editable text")
                     : CanvasThumbnail.layer(layer.asset?.thumbnail, transform: layer.transform, canvas: canvas, box: 36))
             thumbnailKey = key
@@ -954,7 +980,7 @@ private final class LayerCell: NSTableCellView, NSTextFieldDelegate {
         linkButton.toolTip = layer.mask?.isLinked == false ? "Link layer and mask so they move together"
             : "Unlink layer and mask to move or transform them separately"
         linkButton.setAccessibilityLabel(layer.mask?.isLinked == false ? "Link mask: \(layer.name)" : "Unlink mask: \(layer.name)")
-        thumbnail.toolTip = editableText ? "Editable text layer" : "Select image pixels"
+        thumbnail.toolTip = editableText ? "Editable text layer" : placeholder ? "Photoshop-only layer" : "Select image pixels"
         maskThumbnail.toolTip = "Select layer mask; Option-click to view it alone; Shift-click to enable/disable; Cmd-click to select its black areas (Cmd-Shift adds, Cmd-Option subtracts)"
         thumbnail.setAccessibilityLabel("Select \(editableText ? "text" : "image"): \(layer.name)")
         maskThumbnail.setAccessibilityLabel("Select mask: \(layer.name)")
@@ -963,12 +989,24 @@ private final class LayerCell: NSTableCellView, NSTextFieldDelegate {
         // A reused cell must not carry another row's half-finished rename.
         if renaming, layerID != layer.id { restoreLabel() }
         if !renaming { nameLabel.stringValue = (layer.maskSourceID == nil ? "" : "↳ ") + layer.name }
-        dimensions.stringValue = layer.liveText != nil ? "Text · Double-click to edit" : layer.adjustment != nil ? "Adjustment · Double-click to edit" : layer.isGroup ? "Folder" : layer.sizeLabel
-        if let source = layer.maskSourceID {
+        if placeholder {
+            // The same caption line the other layer kinds use, as a small badge: this layer only matters in Photoshop.
+            dimensions.stringValue = "Photoshop-only"
+            dimensions.toolTip = "A Photoshop adjustment or fill layer Compositor can’t show. It stays hidden and keeps its Photoshop settings so nothing is lost."
+        } else {
+            dimensions.stringValue = layer.liveText != nil ? "Text · Double-click to edit" : layer.adjustment != nil ? "Adjustment · Double-click to edit" : layer.isGroup ? "Folder" : layer.sizeLabel
+        }
+        if !placeholder, let source = layer.maskSourceID {
             let sourceName = session.document?.layers.first(where: { $0.id == source })?.name ?? "Missing source"
             dimensions.stringValue = "Clipped to \(sourceName)"
             dimensions.toolTip = "Clipping mask based on \(sourceName). Option-click the bottom of its row to release."
+        } else if let smartObject = layer.smartObject {
+            // The caption line as a badge, as Photoshop marks a smart object's thumbnail.
+            dimensions.stringValue = "Smart object · " + dimensions.stringValue
+            let file = smartObject.info.fileName.isEmpty ? "" : " from “\(smartObject.info.fileName)”"
+            dimensions.toolTip = "A Photoshop smart object\(file). Painting on it or filtering it turns it into plain pixels."
         } else { dimensions.toolTip = nil }
+        configureLock(layer, locks: locks, enabled: enabled)
         eye.image = NSImage(systemSymbolName: layer.isVisible ? "eye" : "eye.slash", accessibilityDescription: nil)
         eye.setAccessibilityLabel("\(layer.isVisible ? "Hide" : "Show") \(layer.name)")
         eye.isEnabled = enabled
@@ -977,6 +1015,36 @@ private final class LayerCell: NSTableCellView, NSTextFieldDelegate {
         alphaValue = visible ? 1 : 0.35
     }
     private var maskThumbnailKey: ThumbnailKey?
+    /// The lock at the row's end: hidden when nothing locks the layer; `locks` holds its folders' locks as well.
+    private func configureLock(_ layer: ImageLayer, locks: LayerLocks, enabled: Bool) {
+        let own = layer.locks
+        lockButton.isHidden = locks.isEmpty
+        nameTrailing.constant = locks.isEmpty ? -8 : -26
+        guard !locks.isEmpty else { return }
+        // Locks a click can't clear: only the folder's, one held by a Lock All folder, or only Photoshop's
+        // artboard-nesting lock on a Background.
+        let inheritedOnly = own.isEmpty
+        let unlockable = session?.canUnlockUserLocks(of: layer) ?? false
+        let byFolder = !inheritedOnly && !own.subtracting(.artboardNesting).isEmpty && !unlockable
+        lockButton.image = NSImage(systemSymbolName: own.contains(.all) ? "lock.fill" : "lock",
+                                   accessibilityDescription: nil)?
+            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 11, weight: .regular))
+        lockButton.contentTintColor = unlockable ? .secondaryLabelColor : .tertiaryLabelColor
+        lockButton.isEnabled = enabled && unlockable
+        var kinds: [String] = []
+        if locks.contains(.all) { kinds.append("everything") } else {
+            if locks.contains(.transparency) { kinds.append("transparent pixels") }
+            if locks.contains(.pixels) { kinds.append("pixels") }
+            if locks.contains(.position) { kinds.append("position") }
+            if locks.contains(.artboardNesting) { kinds.append("artboard nesting") }
+        }
+        let what = kinds.isEmpty ? "Locked" : "Locked: " + kinds.joined(separator: ", ")
+        lockButton.toolTip = inheritedOnly || byFolder ? what + " (with the folder it’s in)"
+            : unlockable ? what + ". Click to unlock." : what
+        lockButton.setAccessibilityLabel(inheritedOnly || byFolder ? "\(layer.name) is locked with its folder"
+            : unlockable ? "Unlock \(layer.name)" : "\(layer.name) is locked")
+    }
+    @objc private func unlock() { if let layerID { session?.unlockUserLocks(on: layerID) } }
     func selectEffect(at point: NSPoint, editing: Bool) -> Bool {
         guard let row = effectButtons.first(where: { $0.bounds.contains($0.convert(point, from: nil)) }) else { return false }
         row.select(editing: editing)
@@ -1049,7 +1117,7 @@ private final class LayerCell: NSTableCellView, NSTextFieldDelegate {
     @objc private func toggleMaskLink() { if let layerID { session?.toggleMaskLink(layerID) } }
     /// Whether a window point lands on one of the row's buttons rather than its name.
     func isOnControl(_ windowPoint: NSPoint) -> Bool {
-        [eye, disclosure, thumbnail, linkButton, maskThumbnail].contains { !$0.isHidden && $0.bounds.contains($0.convert(windowPoint, from: nil)) }
+        [eye, disclosure, thumbnail, linkButton, maskThumbnail, lockButton].contains { !$0.isHidden && $0.bounds.contains($0.convert(windowPoint, from: nil)) }
     }
     @objc func loadMaskSelection() {
         guard let layerID else { return }
@@ -1366,6 +1434,7 @@ private struct ThumbnailKey: Equatable {
     let transform: LayerTransform
     let canvas: CGSize
     var editableText = false
+    var placeholder = false
 }
 
 extension ImageLayer {

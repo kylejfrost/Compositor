@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- The compositor-mcp bridge needs no entitlements: it reads the endpoint file, talks to 127.0.0.1 and
+         launches Compositor, all allowed under the hardened runtime. This file is explicit so that signing adds
+         nothing either: a command-line tool has no provisioning profile, and an injected
+         com.apple.application-identifier would make macOS refuse to run a Developer ID-signed bridge. -->
+</dict>
+</plist>

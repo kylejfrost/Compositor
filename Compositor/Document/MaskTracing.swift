@@ -70,26 +70,45 @@ nonisolated enum MaskTracing {
     }
 }
 
+extension ImageLayer {
+    /// The document-space outline of this layer's pixels that are at least 50% opaque, ignoring its mask; nil for a
+    /// folder or a layer with no such pixels.
+    func opaquePixelsOutline() -> CGPath? {
+        guard !isGroup, let image = asset?.image, let traced = MaskTracing.opaquePixels(in: image) else { return nil }
+        var toDocument = BrushRaster.pixelToDocument(transform, width: image.width, height: image.height)
+        return traced.copy(using: &toDocument)
+    }
+
+    /// The document-space outline of this layer mask's white (revealed) areas, as Photoshop's Cmd-click on a mask
+    /// thumbnail loads them; nil without a mask or without white.
+    func maskWhiteAreasOutline() -> CGPath? {
+        guard let image = mask?.asset.image, let traced = MaskTracing.whitePixels(in: image) else { return nil }
+        var toDocument = BrushRaster.pixelToDocument(maskTransform, width: image.width, height: image.height)
+        return traced.copy(using: &toDocument)
+    }
+
+    /// The document-space outline of this layer mask's black (hidden) areas; nil without a mask or without black.
+    func maskBlackAreasOutline() -> CGPath? {
+        guard let image = mask?.asset.image, let traced = MaskTracing.darkPixels(in: image) else { return nil }
+        var toDocument = BrushRaster.pixelToDocument(maskTransform, width: image.width, height: image.height)
+        return traced.copy(using: &toDocument)
+    }
+}
+
 extension EditorSession {
     /// Cmd-click on a mask thumbnail: the mask's black (hidden) areas become the
     /// selection. Shift adds to the current selection; Option subtracts from it.
     func loadMaskSelection(layerID: UUID, mode: SelectionMode = .replace) {
-        guard canEditSelection, let layer = document?.layers.first(where: { $0.id == layerID }),
-              let mask = layer.mask?.asset.image else { return }
-        guard let traced = MaskTracing.darkPixels(in: mask) else { NSSound.beep(); return }
-        var toDocument = BrushRaster.pixelToDocument(layer.maskTransform, width: mask.width, height: mask.height)
-        guard let outline = traced.copy(using: &toDocument) else { return }
+        guard canEditSelection, let layer = document?.layers.first(where: { $0.id == layerID }), layer.mask != nil else { return }
+        guard let outline = layer.maskBlackAreasOutline() else { NSSound.beep(); return }
         applySelection(outline, mode: mode, name: "Load Mask Selection")
     }
 
     /// Cmd-click on a layer thumbnail: the layer's visible (≥ 50% opaque) pixels become
     /// the selection, ignoring its mask, as in Photoshop. Shift adds; Option subtracts.
     func loadLayerSelection(layerID: UUID, mode: SelectionMode = .replace) {
-        guard canEditSelection, let layer = document?.layers.first(where: { $0.id == layerID }), !layer.isGroup,
-              let image = layer.asset?.image else { NSSound.beep(); return }
-        guard let traced = MaskTracing.opaquePixels(in: image) else { NSSound.beep(); return }
-        var toDocument = BrushRaster.pixelToDocument(layer.transform, width: image.width, height: image.height)
-        guard let outline = traced.copy(using: &toDocument) else { return }
+        guard canEditSelection, let layer = document?.layers.first(where: { $0.id == layerID }),
+              let outline = layer.opaquePixelsOutline() else { NSSound.beep(); return }
         applySelection(outline, mode: mode, name: "Load Layer Selection")
     }
 }

@@ -72,6 +72,34 @@ struct PSBImportTests {
         #expect(throws: ImageImportError.tooLarge) { try PSDReader.read(data) }
     }
 
+    /// An `8B64` block's length takes eight bytes whatever its key (upstream's rule, the signature or a listed key in a
+    /// PSB): one with a key outside `largeDocumentKeys` frames whole, and the blocks after it are still read, at layer
+    /// and document level, in a PSB and a PSD alike.
+    @Test func an8B64BlockWithAKeyOutsideTheListHasAnEightByteLength() throws {
+        let image = try colorImage(width: 2, height: 2, red: 1, green: 0, blue: 0)
+        let wide = PSDTaggedBlock(signature: "8B64", key: "zzzz", data: Data([1, 2, 3, 4, 5, 6]))
+        let after = PSDTaggedBlock(key: "shmd", data: Data([9, 9]))
+        let pattern = PSDTaggedBlock(key: "Patt", data: Data([7, 7, 7, 7]))
+        for large in [true, false] {
+            var layer = PSDRecord(id: UUID(), name: "Wide")
+            layer.bounds = CGRect(x: 0, y: 0, width: 2, height: 2)
+            layer.image = image
+            layer.extras = PSDLayerExtras(blocks: [wide, after])
+            let source = PSDDocument(width: 2, height: 2, resolution: 72, layers: [layer],
+                                     extras: PSDDocumentExtras(globalBlocks: [wide, pattern]))
+            let data = try PSDFixture.data(source, composite: image, largeDocument: large)
+            // As a Photoshop file frames it: the key, then a u64 length (a zero high word, then 6), then the payload.
+            let framed = Data("8B64zzzz".utf8) + Data([0, 0, 0, 0, 0, 0, 0, 6, 1, 2, 3, 4, 5, 6])
+            #expect(data.ranges(of: framed).count == 2, "large: \(large)")
+            let document = try PSDReader.read(data)
+            let extras = try #require(document.layers.first?.extras)
+            #expect(Array(extras.blocks.dropFirst()) == [wide, after], "large: \(large), \(extras.blocks.map(\.key))")
+            #expect(extras.trailingBytes.isEmpty, "large: \(large)")
+            #expect(document.extras?.globalBlocks == [wide, pattern], "large: \(large)")
+            #expect(document.layers.map(\.name) == ["Wide"])
+        }
+    }
+
     @Test func PSBLargeAdditionalInfoBlockDoesNotHideUnicodeName() throws {
         let image = try colorImage(width: 2, height: 2, red: 1, green: 0, blue: 0)
         var layer = PSDRecord(id: UUID(), name: "Caf\u{00E9} layer")

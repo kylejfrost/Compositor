@@ -1,0 +1,48 @@
+{
+  "skill_name": "compositor",
+  "about": "Checks grade_scripted.py runs for skills/compositor/evals/evals.json. Each entry grades the one expectation whose text contains 'match'; the rest are left for the grader agent. Paths are relative to the run's outputs/ (the Agent folder); baselines to the replayed fixtures.",
+  "evals": {
+    "1": [
+      {"match": "exports/promo-draft-half.png exists in the Agent folder and is 540 x 540", "checks": [
+        {"type": "image_size", "path": "exports/promo-draft-half.png", "width": 540, "height": 540, "format": "png"}]},
+      {"match": "promo-draft-v2.comp exists in the Agent folder", "checks": [
+        {"type": "exists", "path": "promo-draft-v2.comp/manifest.json"},
+        {"type": "unchanged", "path": "promo-draft.comp/manifest.json"}]},
+      {"match": "the Badge layer's transform origin x is 40 greater and y is 20 smaller", "checks": [
+        {"type": "comp_layer", "path": "promo-draft-v2.comp", "layer": "Badge", "baseline": "promo-draft.comp",
+         "delta": {"transform.origin.0": 40, "transform.origin.1": -20}}]},
+      {"match": "get_document (or get_layer) before the first edit", "checks": [
+        {"type": "first_before", "first": {"any": ["get_document", "get_layer"]},
+         "before": {"any": ["move_layer", "set_layer_transform", "run_batch"]}},
+        {"type": "order", "steps": [
+          {"any": ["move_layer", "set_layer_transform", "run_batch"]},
+          {"any": ["render_document", "render_region"]},
+          {"tool": "export_image"}]}]},
+      {"match": "No tool call passes overwrite: true or discard_changes: true", "checks": [
+        {"type": "not_called", "args": {"overwrite": true}},
+        {"type": "not_called", "args": {"discard_changes": true}}]}
+    ],
+    "2": [
+      {"match": "the Logo layer inside the Footer folder has a transform origin y 24 smaller", "checks": [
+        {"type": "comp_layer", "path": "promo-draft-footer.comp", "layer": "Footer/Logo", "baseline": "promo-draft.comp",
+         "delta": {"transform.origin.1": -24}}]},
+      {"match": "The top-level Logo layer's transform is identical in both files", "checks": [
+        {"type": "comp_layer", "path": "promo-draft-footer.comp", "layer": "Logo", "baseline": "promo-draft.comp",
+         "same": ["transform"]}]},
+      {"match": "The Footer folder's locks in promo-draft-footer.comp include position", "checks": [
+        {"type": "comp_layer", "path": "promo-draft-footer.comp", "layer": "Footer", "bits": {"locks": 4}}]},
+      {"match": "never by the bare name Logo", "checks": [
+        {"type": "not_called", "any": ["move_layer", "set_layer_transform", "scale_layer_to_fit", "place_layer"],
+         "args": {"layer": "Logo"}, "ok": true}]},
+      {"match": "promo-draft.comp/manifest.json has the same sha256 as before the run", "checks": [
+        {"type": "unchanged", "path": "promo-draft.comp/manifest.json"}]}
+    ],
+    "3": [
+      {"match": "The pre-existing exports/promo-draft.png has the same sha256", "checks": [
+        {"type": "unchanged", "path": "exports/promo-draft.png"}]},
+      {"match": "A render tool is called after the band is added and before the export", "checks": [
+        {"type": "order", "after_last": {"any": ["add_shape", "add_blank_layer", "fill_selection", "run_batch"]},
+         "steps": [{"any": ["render_document", "render_region", "render_layer"]}, {"tool": "export_image"}]}]}
+    ]
+  }
+}

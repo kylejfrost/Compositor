@@ -271,11 +271,16 @@ extension EditorSession {
     /// Object Selection: selects the Vision foreground instance under `point`, read from
     /// the active layer or every visible layer, combined with the current selection by `mode`.
     func selectObject(at point: CGPoint, mode: SelectionMode) async {
+        await selectObject(at: point, mode: mode, settings: objectSelectionSettings)
+    }
+
+    /// Object Selection with `settings` in place of the options bar's, which stay as they are.
+    func selectObject(at point: CGPoint, mode: SelectionMode, settings: ObjectSelectionSettings) async {
         guard canEditSelection, !isProjectBusy, selectionMoveOrigin == nil, let document,
               point.x >= 0, point.y >= 0, point.x < document.size.width, point.y < document.size.height,
-              let sample = selectionSample(document, sampleAllLayers: objectSelectionSettings.sampleAllLayers) else { return }
+              let sample = selectionSample(document, sampleAllLayers: settings.sampleAllLayers) else { return }
         let job = ObjectSelectionJob(image: sample, point: point,
-                                     edgeOffset: min(10, max(-10, objectSelectionSettings.edgeOffset)),
+                                     edgeOffset: min(10, max(-10, settings.edgeOffset)),
                                      smoothEdges: selectionAntialiased)
         isProjectBusy = true
         let result = await Task.detached(priority: .userInitiated) { () -> ObjectSelectionResult in

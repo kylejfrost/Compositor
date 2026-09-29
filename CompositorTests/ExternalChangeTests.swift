@@ -1,4 +1,5 @@
 import AppKit
+import MCP
 import Testing
 import UniformTypeIdentifiers
 @testable import Compositor
@@ -136,6 +137,26 @@ struct ExternalChangeTests {
         try Data(contentsOf: manifest).write(to: manifest, options: .atomic)
         await settle()
         #expect(controller.externalChanges.reloadCount == 0)
+    }
+
+    /// An agent's save is the app's own save too: the project is watched once an agent opens it, and its saves neither
+    /// reload the document nor cost it its undo history. Another app's write after that still reloads it.
+    @Test func anAgentsOpenAndSaveAreOurOwn() async throws {
+        let root = try temporaryFolder()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let url = try await savedProject(in: root)
+        let workspace = ProjectWorkspace()
+        try await MCPTestSupport.call("open_document", ["path": .string(url.path)], in: workspace)
+        let tab = workspace.current, session = tab.session
+        #expect(tab.controller.externalChanges.watcher != nil)
+        try await MCPTestSupport.call("rename_layer", ["layer": "Base", "name": "Saved by an agent"], in: workspace)
+        try await MCPTestSupport.call("save_document", in: workspace)
+        await settle()
+        #expect(tab.controller.externalChanges.reloadCount == 0)
+        #expect(session.canUndo && !session.isModified)
+        try await renameFirstLayerOnDisk(url, to: "Renamed elsewhere")
+        #expect(await eventually { tab.controller.externalChanges.reloadCount == 1 })
+        #expect(session.document?.layers.first?.name == "Renamed elsewhere")
     }
 
     @Test func halfWrittenPackagesAreIgnoredUntilTheyLoad() async throws {

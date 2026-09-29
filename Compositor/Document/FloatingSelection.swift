@@ -26,6 +26,7 @@ extension EditorSession {
 
     func beginSelectionTransform() async {
         guard canTransformSelection, let document, let source = activeLayer else { NSSound.beep(); return }
+        guard pixelsUnlocked(source, mask: false) else { return }
         let lifted: (image: CGImage, region: CGRect)
         do {
             guard let pixels = try renderSelectedPixels(from: source, mask: false) else { NSSound.beep(); return }
@@ -95,9 +96,7 @@ extension EditorSession {
             }
             document?.layers.removeAll { $0.id == edit.layerID }
             guard let index = document?.layers.firstIndex(where: { $0.id == source.id }) else { throw ProjectError.invalid }
-            document?.layers[index] = ImageLayer(id: source.id, asset: merged.asset, name: source.name, isVisible: source.isVisible,
-                transform: merged.transform, parentID: source.parentID, isGroup: false,
-                opacity: source.opacity, blendMode: source.blendMode, mask: merged.mask, maskSourceID: source.maskSourceID)
+            document?.layers[index] = source.replacingPixels(merged.asset, transform: merged.transform, mask: merged.mask)
             document?.selection = moved
             activeLayerID = source.id
         } catch {
@@ -141,8 +140,8 @@ nonisolated enum FloatingMerge {
         guard let image = context.makeImage() else { throw ExportError.render }
         let asset = ImportedImage(image: image, thumbnail: try PixelInvert.thumbnail(of: image), name: source.name)
         var merged = source.transform
-        merged.size = CGSize(width: extent.width * source.size.width / CGFloat(width),
-                             height: extent.height * source.size.height / CGFloat(height))
+        merged.size = CGSize(width: extent.width * source.transform.size.width / CGFloat(width),
+                             height: extent.height * source.transform.size.height / CGFloat(height))
         let center = CGPoint(x: extent.midX, y: extent.midY).applying(toDocument)
         merged.origin = CGPoint(x: center.x - merged.size.width / 2, y: center.y - merged.size.height / 2)
         var mask = source.mask

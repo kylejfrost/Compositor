@@ -147,6 +147,7 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
         removeFrameObserver()
         guard let window = documentWindow() else { return }
         dockedWindow = window
+        // Delivered on the main queue, so the panel can be moved right there.
         let follow: @Sendable (Notification) -> Void = { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self, let panel = self.panel, panel.isVisible, self.placement == .dockedToMainWindowRight else { return }

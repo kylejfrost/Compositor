@@ -1,0 +1,4 @@
+interface:
+  display_name: "Compositor Development"
+  short_description: "Change, build and test the Compositor codebase: architecture, MCP tools, PSD import and the .comp format."
+  default_prompt: "Use this skill before editing Compositor's code: follow its build and test commands with an isolated DerivedData, its conventions, and its end-to-end recipes for MCP tools, PSD features and .comp format changes."

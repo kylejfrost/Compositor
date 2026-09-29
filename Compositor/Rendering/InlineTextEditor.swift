@@ -88,6 +88,15 @@ final class InlineTextEditor: NSView, NSTextViewDelegate {
         let scale: CGFloat
     }
     private var shownGeometry: Geometry?
+    /// What the placement was worked out from, so the text isn't laid out again on every refresh.
+    private struct PlacementKey: Equatable {
+        let draftID: UUID
+        let style: LayerTextStyle
+        let origin: CGPoint
+        let transform: LayerTransform?
+        let size: CGSize
+    }
+    private var placement: (key: PlacementKey, transform: LayerTransform)?
     private var measuredStyle: LayerTextStyle?
     private var measuredSize: CGSize = .zero
     private var resize: (handle: Int, draft: TextDraft, transform: LayerTransform, start: CGPoint)?
@@ -135,7 +144,6 @@ final class InlineTextEditor: NSView, NSTextViewDelegate {
         let fresh = draftID != draft.id
         draftID = draft.id
         let style = draft.style
-        let layer = document.layers.first { $0.id == draft.layerID }
         // Point text has no box: it is as big as what has been typed, growing as it is typed.
         if let boxSize = style.boxSize {
             logicalSize = boxSize
@@ -146,17 +154,16 @@ final class InlineTextEditor: NSView, NSTextViewDelegate {
             }
             logicalSize = measuredSize
         }
-        var transform = draft.transform ?? LayerTransform(origin: draft.origin, size: logicalSize)
-        // Point text already on a layer grows as it is typed too, keeping whatever scale the layer was given.
-        if style.boxSize == nil, draft.transform != nil, let asset = layer?.asset, asset.image.width > 0 {
-            let factor = transform.size.width / CGFloat(asset.image.width)
-            // A rotated layer turns about its center, so growing it swings its corner away and the text drifts as it
-            // is typed. The top-left corner is put back where it was, which is where the commit leaves it too.
-            let anchor = transform.point(.zero)
-            transform.size = CGSize(width: logicalSize.width * factor, height: logicalSize.height * factor)
-            let moved = transform.point(.zero)
-            transform.origin.x += anchor.x - moved.x
-            transform.origin.y += anchor.y - moved.y
+        // Point text grows as it is typed, where committing it will put it, keeping whatever scale the layer was given:
+        // around its alignment anchor (the point Photoshop anchored imported text by), or from its top-left corner
+        // for new text and text moved in the editor.
+        let key = PlacementKey(draftID: draft.id, style: style, origin: draft.origin, transform: draft.transform, size: logicalSize)
+        let transform: LayerTransform
+        if let placement, placement.key == key {
+            transform = placement.transform
+        } else {
+            transform = canvas.session.textDraftTransform(draft, size: logicalSize)
+            placement = (key, transform)
         }
         shownTransform = transform
         let scale = canvas.session.viewport.pointsPerPixel
@@ -190,7 +197,8 @@ final class InlineTextEditor: NSView, NSTextViewDelegate {
             let kept = canvas.session.textDraft?.selection ?? live
             let selection = textView.holdsSelection && kept.length > 0 ? kept : live
             if textView.string != style.content { textView.string = style.content }
-            var attributes = EditorSession.textAttributes(style)
+            // Stretched as the layer stretches unevenly scaled type, so the lines are as wide and break in the same places.
+            var attributes = EditorSession.textAttributes(style, widthScaled: true)
             attributes[.foregroundColor] = NSColor.clear
             if !textView.hasMarkedText() {
                 textView.textStorage?.setAttributes(attributes, range: NSRange(location: 0, length: textView.string.utf16.count))

@@ -20,6 +20,24 @@ struct TiledLayerTests {
         }
         return try #require(context.makeImage())
     }
+    /// Smooth, deterministic pixels: waves tens of pixels long in each channel. A resample that lands a fraction of a
+    /// pixel differently changes them by a level or so, where noise can change by dozens; a pixel out of place, or
+    /// emptiness pulled in at an edge, still shows.
+    private func waves(width: Int, height: Int) throws -> CGImage {
+        let context = try BrushRaster.context(width: width, height: height, mask: false)
+        let bytes = try #require(context.data).assumingMemoryBound(to: UInt8.self)
+        for y in 0..<height {
+            for x in 0..<width {
+                let i = (y * width + x) * 4
+                let fx = Double(x), fy = Double(y)
+                bytes[i] = UInt8(127.5 + 127 * sin(fx / 5.1 + fy / 7.3))
+                bytes[i + 1] = UInt8(127.5 + 127 * sin(fx / 6.7 - fy / 4.9 + 1))
+                bytes[i + 2] = UInt8(127.5 + 127 * cos((fx + fy) / 8.3))
+                bytes[i + 3] = 255
+            }
+        }
+        return try #require(context.makeImage())
+    }
     private func composite(_ base: CGImage, _ patches: [BrushPatch]) throws -> CGImage {
         let context = try BrushRaster.context(width: base.width, height: base.height, mask: false)
         BrushRaster.draw(base, in: CGRect(x: 0, y: 0, width: base.width, height: base.height), mask: false, context: context)
@@ -140,9 +158,14 @@ struct TiledLayerTests {
     /// edge that margin falls outside the layer; resampling it used to pull that emptiness into the border — worse
     /// the more the layer was magnified, and gone again on mouse-up. Each patch holds the pixels already beneath it,
     /// so a correct stroke changes nothing anywhere.
+    ///
+    /// The layer is smooth waves, not noise: Core Graphics doesn't resample a large magnified image the same way
+    /// for every clip (under load, drawing the whole layer and drawing it through one piece's clip differed by up to
+    /// 15 levels on noise, far from any edge), and on waves that shows as a level or so while emptiness pulled into
+    /// the edge still shows in full.
     @Test(arguments: [10.749, 1.0])
     func paintingAtTheLayersEdgeDoesNotChangeIt(zoom: Double) throws {
-        let image = try noise(width: 3360, height: 1812, seed: 11)
+        let image = try waves(width: 3360, height: 1812)
         var transform = LayerTransform(origin: .zero, size: CGSize(width: 336, height: 181))
         transform.sampling = .high
         let s = CGFloat(zoom), d: CGFloat = 2
@@ -224,6 +247,20 @@ struct TiledLayerTests {
         #expect(largestDifference(expected, live, side: side, inside: inside) <= tolerance, "a translucent live stroke at \(scale)×, \(rotation)°")
     }
 
+    private struct CanvasSnapshot { let bytes: [UInt8]; let width: Int; let height: Int; let rowBytes: Int; let samples: Int }
+    private struct SnapshotUnavailable: Error {}
+
+    /// What `view` shows now, as its backing store's bytes.
+    private func snapshot(of view: CanvasView) throws -> CanvasSnapshot {
+        view.synchronizeDisplay()
+        guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { throw SnapshotUnavailable() }
+        view.cacheDisplay(in: view.bounds, to: rep)
+        guard let data = rep.bitmapData else { throw SnapshotUnavailable() }
+        return CanvasSnapshot(bytes: Array(UnsafeBufferPointer(start: data, count: rep.bytesPerRow * rep.pixelsHigh)),
+                              width: rep.pixelsWide, height: rep.pixelsHigh, rowBytes: rep.bytesPerRow,
+                              samples: rep.bitsPerPixel / 8)
+    }
+
     /// Paints on a big scaled-down photo shown on a real canvas — its pixels or, with `paintingMask`, its layer
     /// mask — and returns how far pixels away from the brush moved as the stroke started and as it finished.
     private func canvasShift(paintingMask: Bool, layerScale: CGFloat = 0.25) throws -> (start: Int, finish: Int, committed: Bool) {
@@ -248,21 +285,11 @@ struct TiledLayerTests {
         session.selectTool(.brush)
         session.brushSettings.diameter = 30
 
-        struct Snapshot { let bytes: [UInt8]; let width: Int; let height: Int; let rowBytes: Int; let samples: Int }
-        struct SnapshotUnavailable: Error {}
-        func snapshot() throws -> Snapshot {
-            view.synchronizeDisplay()
-            guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { throw SnapshotUnavailable() }
-            view.cacheDisplay(in: view.bounds, to: rep)
-            guard let data = rep.bitmapData else { throw SnapshotUnavailable() }
-            return Snapshot(bytes: Array(UnsafeBufferPointer(start: data, count: rep.bytesPerRow * rep.pixelsHigh)),
-                            width: rep.pixelsWide, height: rep.pixelsHigh, rowBytes: rep.bytesPerRow, samples: rep.bitsPerPixel / 8)
-        }
         // The brushed area in snapshot pixels, grown generously.
         let brush = CGPoint(x: transform.center.x, y: transform.center.y)
         let topLeft = session.viewport.viewPoint(from: CGPoint(x: brush.x - 60, y: brush.y - 40), documentSize: size)
         let bottomRight = session.viewport.viewPoint(from: CGPoint(x: brush.x + 80, y: brush.y + 40), documentSize: size)
-        func largestDifference(_ a: Snapshot, _ b: Snapshot) -> Int {
+        func largestDifference(_ a: CanvasSnapshot, _ b: CanvasSnapshot) -> Int {
             let perPoint = CGFloat(a.width) / view.bounds.width
             let box = CGRect(x: topLeft.x * perPoint, y: topLeft.y * perPoint,
                              width: (bottomRight.x - topLeft.x) * perPoint, height: (bottomRight.y - topLeft.y) * perPoint)
@@ -280,12 +307,12 @@ struct TiledLayerTests {
             return largest
         }
 
-        let before = try snapshot()
+        let before = try snapshot(of: view)
         session.beginBrush(at: brush)
         session.continueBrush(at: CGPoint(x: brush.x + 20, y: brush.y))
-        let during = try snapshot()
+        let during = try snapshot(of: view)
         session.finishBrushImmediately()
-        let after = try snapshot()
+        let after = try snapshot(of: view)
         let committed = paintingMask ? session.activeLayer?.mask?.asset.raster != nil : session.activeLayer?.asset?.raster != nil
         return (largestDifference(before, during), largestDifference(during, after), committed)
     }

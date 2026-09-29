@@ -1,0 +1,34 @@
+{
+  "skill_name": "compositor-image-editing",
+  "about": "Checks grade_scripted.py runs for skills/compositor-image-editing/evals/evals.json. Pixel statistics (a point's color, mean luminance, red minus blue, the share of pixels that differ from the input) come from image_stats.py with Pillow through uv; whether a saved .comp keeps the original pixels is left for the grader agent.",
+  "evals": {
+    "1": [
+      {"match": "out/product-cutout.png exists, is a PNG with an alpha channel", "checks": [
+        {"type": "image_size", "path": "out/product-cutout.png", "width": 640, "height": 640, "tolerance": 6, "format": "png", "alpha": true}]},
+      {"match": "In out/product-cutout.png the corner pixel (0, 0) has alpha 0", "checks": [
+        {"type": "pixel", "path": "out/product-cutout.png", "x": 0, "y": 0, "equals": {"a": {"<=": 0.01}}},
+        {"type": "pixel", "path": "out/product-cutout.png", "x": "center", "y": "center", "equals": {"a": {">=": 0.99}, "r": {">": 0.7}, "g": {"<": 0.3}, "b": {"<": 0.3}}}]},
+      {"match": "The transcript shows remove_background, or select_by_color on the backdrop", "checks": [
+        {"type": "any", "checks": [{"type": "called", "tool": "remove_background", "ok": true}, {"type": "order", "steps": [{"tool": "select_by_color"}, {"tool": "add_layer_mask"}]}, {"type": "order", "steps": [{"tool": "select_by_color"}, {"tool": "clear_selection"}]}]}]}
+    ],
+    "2": [
+      {"match": "out/room-corrected.jpg exists and is 1600 x 1067", "checks": [
+        {"type": "image_size", "path": "out/room-corrected.jpg", "width": 1600, "height": 1067, "format": "jpeg"}]},
+      {"match": "The mean luminance of out/room-corrected.jpg is higher", "checks": [
+        {"type": "image_compare", "path": "out/room-corrected.jpg", "other": "eval-inputs/dim-warm-room.png", "stat": "mean_luminance", "relation": ">"}]},
+      {"match": "The mean red minus mean blue of out/room-corrected.jpg is smaller", "checks": [
+        {"type": "image_compare", "path": "out/room-corrected.jpg", "other": "eval-inputs/dim-warm-room.png", "stat": "mean_red_minus_blue", "relation": "<"}]},
+      {"match": "sample_colors (or get_pixel_color) before the first adjustment and again after the last", "checks": [
+        {"type": "first_before", "first": {"any": ["sample_colors", "get_pixel_color"]}, "before": {"any": ["add_adjustment_layer", "set_adjustment"]}},
+        {"type": "last_after", "last": {"any": ["sample_colors", "get_pixel_color"]}, "after": {"any": ["add_adjustment_layer", "set_adjustment"]}}]}
+    ],
+    "3": [
+      {"match": "list_profiles with a query or group before the profile layer is added", "checks": [
+        {"type": "any", "checks": [{"type": "first_before", "first": {"tool": "list_profiles", "args": {"query": {"matches": "\\S"}}}, "before": {"tool": "add_adjustment_layer", "args": {"kind": "profile"}}}, {"type": "first_before", "first": {"tool": "list_profiles", "args": {"group": {"matches": "\\S"}}}, "before": {"tool": "add_adjustment_layer", "args": {"kind": "profile"}}}]},
+        {"type": "called", "tool": "add_adjustment_layer", "args": {"kind": "profile"}}]},
+      {"match": "out/city-film.jpg exists and is 1500 x 1000 pixels, and differs from the input", "checks": [
+        {"type": "image_size", "path": "out/city-film.jpg", "width": 1500, "height": 1000, "format": "jpeg"},
+        {"type": "image_differs", "path": "out/city-film.jpg", "other": "eval-inputs/city-street.png", "min_fraction": 0.01}]}
+    ]
+  }
+}

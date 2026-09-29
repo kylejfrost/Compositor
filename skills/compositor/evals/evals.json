@@ -1,0 +1,49 @@
+{
+  "skill_name": "compositor",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Open promo-draft.comp from Compositor's Agent folder. Nudge the Badge 40 px right and 20 px up, then export a half-size PNG preview to exports/promo-draft-half.png and save the edited project as promo-draft-v2.comp next to the original. promo-draft.comp itself must stay exactly as it is.",
+      "expected_output": "Opens promo-draft.comp, reads the layer tree, moves the Badge layer by (+40, -20) with move_layer (or an equivalent transform), renders to check, exports a 540x540 PNG with export_image scale 0.5 (or max_size 540), and saves with save_document_as to promo-draft-v2.comp without touching promo-draft.comp.",
+      "files": [],
+      "fixtures": ["promo-draft"],
+      "expectations": [
+        "exports/promo-draft-half.png exists in the Agent folder and is 540 x 540 pixels (sips -g pixelWidth -g pixelHeight)",
+        "promo-draft-v2.comp exists in the Agent folder, and promo-draft.comp/manifest.json has the same sha256 as before the run",
+        "In promo-draft-v2.comp/manifest.json the Badge layer's transform origin x is 40 greater and y is 20 smaller than in promo-draft.comp",
+        "The transcript shows get_document (or get_layer) before the first edit, and a render_document or render_region call after the move and before export_image",
+        "No tool call passes overwrite: true or discard_changes: true",
+        "The agent reports the absolute paths of the PNG and the new project"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "In promo-draft.comp the footer logo sits too low: raise it 24 px. Leave the other logo exactly where it is, keep the template's locks as they were, and save the result as promo-draft-footer.comp.",
+      "expected_output": "Notices two layers named Logo (one at the top level, one in the position-locked Footer folder), addresses the footer one by id or by the path Footer/Logo, handles the folder's position lock (unlocks it for the move and locks it again, or explains the lock), moves the layer up 24 px, and saves a new project, leaving the original untouched.",
+      "files": [],
+      "fixtures": ["promo-draft"],
+      "expectations": [
+        "In promo-draft-footer.comp/manifest.json the Logo layer inside the Footer folder has a transform origin y 24 smaller than in promo-draft.comp",
+        "The top-level Logo layer's transform is identical in both files",
+        "The Footer folder's locks in promo-draft-footer.comp include position, as they did in promo-draft.comp",
+        "Every tool call that changes the footer logo addresses it by a layer id or by the path Footer/Logo, never by the bare name Logo",
+        "promo-draft.comp/manifest.json has the same sha256 as before the run"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Put a DRAFT band across the middle of promo-draft.comp: a full-width white bar, 160 px tall, centered vertically, at 40% opacity, added so that a single Cmd-Z removes it. Then export a PNG to exports/promo-draft.png in the Agent folder. A teammate already left a file with that name there; don't clobber it.",
+      "expected_output": "Adds the band as one undo step (run_batch, or one call that creates it completely), verifies it with a render, sees that exports/promo-draft.png exists (list_files or get_file_info, or the file_exists error) and exports to a new name instead of overwriting, or asks first; the teammate's file is unchanged.",
+      "files": [],
+      "fixtures": ["promo-draft"],
+      "expectations": [
+        "The pre-existing exports/promo-draft.png has the same sha256 after the run as before it",
+        "A new PNG export of the document exists in exports/ under a different name, or the agent stopped to ask before replacing the file; no call passes overwrite: true",
+        "get_history (or the last mutating result's undo count) shows the band was recorded as exactly one undo entry: the transcript contains a run_batch whose steps create, fill and set the opacity of the band, or a single mutating call that does all of it",
+        "The band's pixels cover exactly x 0 to 1080 and y 460 to 620, judged by what shows, not by the layer's transform (a layer made with add_blank_layer stays canvas-sized however little is filled): get_layer_bounds on the band layer reports content_bounds x 0, y 460, width 1080, height 160; or the composite (sample_colors on the document, or the new PNG) is at least 60 higher than the navy #0b1f3a in every channel at (20, 462), (1060, 540) and (20, 617), and within 2 of #0b1f3a at (20, 457) and (20, 622)",
+        "The band layer's opacity is 0.4 (get_document or get_layer, or the saved manifest if the agent saved)",
+        "A render tool is called after the band is added and before the export"
+      ]
+    }
+  ]
+}

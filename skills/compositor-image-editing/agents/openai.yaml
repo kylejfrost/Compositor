@@ -1,0 +1,4 @@
+interface:
+  display_name: "Compositor Image Editing"
+  short_description: "Photo and pixel work in Compositor: selections, masks, cutouts, adjustment layers, Lightroom profiles, retouching, crop."
+  default_prompt: "Use this skill to edit photos in Compositor non-destructively: measure with sample_colors, select or mask the area, correct tone and color with adjustment layers or a Lightroom profile, retouch on copies, crop or resize, and verify at 100% before exporting."

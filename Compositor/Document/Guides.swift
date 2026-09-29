@@ -133,11 +133,14 @@ extension EditorSession {
     static let guideColor = CGColor(srgbRed: 0, green: 1, blue: 1, alpha: 0.9)
     static let guideHitDistance: CGFloat = 5
 
-    var canClearGuides: Bool { document.map { !$0.guides.isEmpty } ?? false }
+    /// Clear Guides works on locked guides too, as in Photoshop, but waits while an agent's batch holds the history
+    /// (`isHeldByAgentBatch`): it would record inside the batch's undo step.
+    var canClearGuides: Bool { !isHeldByAgentBatch && (document.map { !$0.guides.isEmpty } ?? false) }
     var canEditGuides: Bool {
         _ = showsBusy
         return document != nil && !locksGuides && !isProjectBusy && !isImporting && !showsNewDocument
-            && levels == nil && hueSaturation == nil && filterEdit == nil && renamingLayerID == nil
+            && levels == nil && hueSaturation == nil && filterEdit == nil && profileEdit == nil && renamingLayerID == nil
+            && !isHeldByAgentBatch
     }
 
     /// Guides as currently shown, including a drag in progress.
@@ -241,6 +244,16 @@ extension EditorSession {
         beginEdit("New Guide")
         document?.guides.append(guide)
         endEdit()
+    }
+
+    /// Removes one guide as its own undo step, as dragging it back onto a ruler does. Nothing happens while guides
+    /// can't be edited (locked, say) or when no guide has that id.
+    func removeGuide(_ id: UUID) {
+        guard canEditGuides, document?.guides.contains(where: { $0.id == id }) == true else { return }
+        beginEdit("Delete Guide")
+        document?.guides.removeAll { $0.id == id }
+        endEdit()
+        refreshCanvasPreview?()
     }
 
     /// Alignment lines a move or crop may snap to, according to View > Snap and Snap To.

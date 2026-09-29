@@ -1,0 +1,64 @@
+{
+  "skill_name": "compositor-psd-templates",
+  "about": "Checks grade_scripted.py runs for skills/compositor-psd-templates/evals/evals.json. 'The new PSD' is any .psd in templates/ other than the template; layers are addressed by their path in the template (everything sits in the folder Card). psd-verify runs with --raw through uv and psd-tools.",
+  "evals": {
+    "1": [
+      {"match": "templates/endorsement-card-template.psd has the same sha256 after the run as before it", "checks": [
+        {"type": "unchanged", "path": "templates/endorsement-card-template.psd"}]},
+      {"match": "A new .psd other than the template exists in templates/", "checks": [
+        {"type": "psd_verify", "glob": "templates/*.psd", "exclude": ["templates/endorsement-card-template.psd"]}]},
+      {"match": "lists the same number of layers, with the same kinds and depths", "checks": [
+        {"type": "psd_same_structure", "glob": "templates/*.psd", "exclude": ["templates/endorsement-card-template.psd"],
+         "baseline": "templates/endorsement-card-template.psd"}]},
+      {"match": "shows the Name type layer's text as 'Jordan Rivera'", "checks": [
+        {"type": "psd_layer", "glob": "templates/*.psd", "exclude": ["templates/endorsement-card-template.psd"],
+         "layer": "Card/Name", "equals": {"kind": "type", "text.text": {"matches": "^Jordan Rivera\\s*$"}}},
+        {"type": "psd_layer", "glob": "templates/*.psd", "exclude": ["templates/endorsement-card-template.psd"],
+         "layer": "Card/Title",
+         "equals": {"kind": "type", "text.text": {"matches": "^Head of Operations, Acme Hardware\\s*$"}}}]},
+      {"match": "The Photo layer is still kind smartobject in the new PSD", "checks": [
+        {"type": "psd_layer", "glob": "templates/*.psd", "exclude": ["templates/endorsement-card-template.psd"],
+         "layer": "Card/Photo", "equals": {"kind": "smartobject"}},
+        {"type": "called", "tool": "replace_smart_object_contents", "args": {"fit": {"in": ["fill", "fit"]}}, "ok": true}]},
+      {"match": "The Photo layer's bbox in the new PSD is the template's frame", "checks": [
+        {"type": "psd_layer", "glob": "templates/*.psd", "exclude": ["templates/endorsement-card-template.psd"],
+         "layer": "Card/Photo", "baseline": "templates/endorsement-card-template.psd", "same": ["bbox"],
+         "equals": {"locks.position": true}}]},
+      {"match": "A PNG in out/ is 1080 x 1350", "checks": [
+        {"type": "image_size", "glob": "out/*.png", "width": 1080, "height": 1350}]},
+      {"match": "The Name and Title layers' bbox centers in the new PSD are within 2 px of x = 540", "checks": [
+        {"type": "psd_layer", "glob": "templates/*.psd", "exclude": ["templates/endorsement-card-template.psd"],
+         "layer": "Card/Name", "center_x": 540, "tolerance": 2},
+        {"type": "psd_layer", "glob": "templates/*.psd", "exclude": ["templates/endorsement-card-template.psd"],
+         "layer": "Card/Title", "center_x": 540, "tolerance": 2}]},
+      {"match": "A render tool is called after the fills and before export_image", "checks": [
+        {"type": "last_after", "last": {"any": ["render_document", "render_region", "render_layer"]},
+         "after": {"any": ["replace_smart_object_contents", "set_text", "fit_text", "set_text_style"]}},
+        {"type": "order", "steps": [
+          {"any": ["replace_smart_object_contents", "set_text"]},
+          {"any": ["render_document", "render_region", "render_layer"]},
+          {"tool": "export_image"}]},
+        {"type": "not_called", "args": {"overwrite": true}}]}
+    ],
+    "2": [
+      {"match": "out/card-oyelaran-castellanos.png exists and is 1080 x 1350", "checks": [
+        {"type": "image_size", "path": "out/card-oyelaran-castellanos.png", "width": 1080, "height": 1350}]},
+      {"match": "templates/endorsement-card-template.psd has the same sha256 after the run as before it", "checks": [
+        {"type": "unchanged", "path": "templates/endorsement-card-template.psd"}]}
+    ],
+    "3": [
+      {"match": "the Accent Bar layer's bbox top is 24 px lower than in the template's report", "checks": [
+        {"type": "psd_layer", "glob": "templates/*.psd", "exclude": ["templates/endorsement-card-template.psd"],
+         "layer": "Card/Accent Bar", "baseline": "templates/endorsement-card-template.psd", "delta": {"bbox.1": 24}}]},
+      {"match": "The Accent Bar layer's locks in the new PSD report complete", "checks": [
+        {"type": "psd_layer", "glob": "templates/*.psd", "exclude": ["templates/endorsement-card-template.psd"],
+         "layer": "Card/Accent Bar", "equals": {"locks.complete": true}}]},
+      {"match": "The Photo layer's position lock is still set in the new PSD", "checks": [
+        {"type": "psd_layer", "glob": "templates/*.psd", "exclude": ["templates/endorsement-card-template.psd"],
+         "layer": "Card/Photo", "equals": {"locks.position": true}}]},
+      {"match": "and out/card-jordan-rivera.png is 1080 x 1350", "checks": [
+        {"type": "unchanged", "path": "templates/endorsement-card-template.psd"},
+        {"type": "image_size", "path": "out/card-jordan-rivera.png", "width": 1080, "height": 1350}]}
+    ]
+  }
+}

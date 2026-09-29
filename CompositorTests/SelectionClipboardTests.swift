@@ -2,7 +2,7 @@ import AppKit
 import Testing
 @testable import Compositor
 
-/// Serialized: every test shares the one system pasteboard.
+/// Each test copies to a private pasteboard of its own (`TestPasteboards`), never the system clipboard.
 @MainActor @Suite(.serialized)
 struct SelectionClipboardTests {
     private let red = PaletteColor(red: 1, green: 0, blue: 0)
@@ -11,6 +11,7 @@ struct SelectionClipboardTests {
     /// A 100×40 canvas whose layer is red on the left half and blue on the right.
     private func makeSession() async -> EditorSession {
         let session = EditorSession()
+        session.pasteboard = TestPasteboards.unique()
         session.createDocument(width: 100, height: 40, emptyLayer: true)
         session.setPaletteColor(red, background: false)
         session.setPaletteColor(blue, background: true)
@@ -43,6 +44,18 @@ struct SelectionClipboardTests {
         session.document = solo
         defer { session.document = full }
         return try pixel(try await render(session), x: x, y: y)
+    }
+
+    /// In a test host a session's Copy never reaches the system clipboard: its pasteboard is private, and holds the PNG
+    /// other apps would get.
+    @Test func copyingInATestHostLeavesTheSystemClipboardAlone() async throws {
+        let session = EditorSession()
+        session.createDocument(width: 10, height: 10, emptyLayer: true)
+        await session.fillSelection(with: .foreground)
+        #expect(session.pasteboard.name != .general)
+        session.copySelection()
+        #expect(session.pasteboard.data(forType: .png) != nil)
+        #expect(session.canPaste)
     }
 
     @Test func copyAndPastePutsPixelsOnANewLayerInPlace() async throws {

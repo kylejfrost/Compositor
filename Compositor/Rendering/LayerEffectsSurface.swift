@@ -12,6 +12,8 @@ import CoreImage
     /// The room the effects need around the pixels.
     let margin: CGFloat
     private let effects: LayerEffects
+    /// The layer's Fill: its pixels are drawn at it, its effects at full strength (see `LayerEffectsRenderer`).
+    private let pixelFill: Double
     private let context: CGContext
     private var shown: CGImage?
     /// Which tile images have already been taken in, so only new paint is redone.
@@ -39,13 +41,14 @@ import CoreImage
         return ceil(reach)
     }
 
-    init?(layerID: UUID, effects: LayerEffects, grid: CGSize, sourceRect: CGRect) {
+    init?(layerID: UUID, effects: LayerEffects, fill: Double = 1, grid: CGSize, sourceRect: CGRect) {
         let margin = LayerEffectsRenderer.margin(for: effects)
         let width = Int(grid.width + margin * 2), height = Int(grid.height + margin * 2)
         guard width > 0, height > 0, width * height <= 80_000_000,
               let context = try? BrushRaster.context(width: width, height: height, mask: false) else { return nil }
         self.layerID = layerID
         self.effects = effects
+        pixelFill = LayerOpacity.fill(fill)
         self.grid = grid
         self.sourceRect = sourceRect
         self.margin = margin
@@ -53,8 +56,9 @@ import CoreImage
     }
 
     /// Whether this surface still fits the stroke and settings it was made for.
-    func matches(layerID: UUID, effects: LayerEffects, grid: CGSize, sourceRect: CGRect) -> Bool {
-        self.layerID == layerID && self.effects == effects && self.grid == grid && self.sourceRect == sourceRect
+    func matches(layerID: UUID, effects: LayerEffects, fill: Double = 1, grid: CGSize, sourceRect: CGRect) -> Bool {
+        self.layerID == layerID && self.effects == effects && pixelFill == LayerOpacity.fill(fill) && self.grid == grid
+            && self.sourceRect == sourceRect
     }
 
     /// Brings the surface up to date: everything on the first pass, and after that only where the paint changed.
@@ -89,7 +93,7 @@ import CoreImage
         let outer = inner.insetBy(dx: -reach, dy: -reach).integral
         guard let pixels = window(outer, base: base, patches: patches, mask: mask) else { return }
         // In one pass on the GPU when it is available: the outline's reach and the shadow's blur are what cost.
-        if let metal = MetalLayerEffects.shared, let built = try? metal.render(pixels, effects: effects) {
+        if let metal = MetalLayerEffects.shared, let built = try? metal.render(pixels, effects: effects, fill: pixelFill) {
             context.saveGState()
             context.clip(to: inner.offsetBy(dx: margin, dy: margin))
             context.clear(inner.offsetBy(dx: margin, dy: margin))
@@ -105,6 +109,8 @@ import CoreImage
         if let shadow = effects.shadow, shadow.isEnabled, shadow.opacity > 0,
            let coverage = try? LayerEffectsRenderer.shadowCoverage(pixels, in: outer.size, offset: shadow.offset, blur: shadow.blur) {
             fill(shadow.color, alpha: shadow.opacity, coverage: coverage, in: placed(outer))
+            // Only the shadow is drawn in the region yet, so this hides it alone.
+            if shadow.isKnockedOut { LayerEffectsRenderer.knockOut(pixels, in: placed(outer), context: context) }
         }
         if let glow = effects.outerGlow, glow.isEnabled, glow.opacity > 0,
            let coverage = try? LayerEffectsRenderer.outerGlowCoverage(pixels, placed: CGRect(origin: .zero, size: outer.size), size: outer.size, glow: glow) {
@@ -114,7 +120,7 @@ import CoreImage
         if let stroke, !stroke.inside, let ring = try? LayerEffectsRenderer.ringCoverage(pixels, in: outer.size, stroke: stroke) {
             fill(stroke.color, alpha: stroke.opacity, coverage: ring, in: placed(outer))
         }
-        BrushRaster.draw(pixels, in: placed(outer), mask: false, context: context)
+        LayerEffectsRenderer.drawPixels(pixels, in: placed(outer), fill: pixelFill, context: context)
         if let glow = effects.innerGlow, glow.isEnabled, glow.size > 0, glow.opacity > 0,
            let coverage = try? LayerEffectsRenderer.innerGlowCoverage(
                 pixels,

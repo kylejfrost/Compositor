@@ -16,27 +16,22 @@ actor CanvasResizer {
         var manifest = ProjectManifest(resolution: old.resolution, documentID: old.documentID,
             width: options.width, height: options.height, activeLayerID: old.activeLayerID, layers: [],
             guides: old.guides?.map { $0.offset(x: offset.x, y: offset.y) })
+        // The Photoshop file's canvas moves with the pixels, as the guides do (its saved paths are placed on it).
+        let shift = CGAffineTransform(translationX: offset.x, y: offset.y)
+        manifest.psd = old.psd.map { PSDDocumentExtrasRecord($0.extras.placingCanvas(shift)) }
         for layer in old.layers {
-            var transform = layer.transform
-            transform.origin.x += offset.x
-            transform.origin.y += offset.y
-            guard transform.isValid else { throw ProjectError.tooLarge }
-            manifest.layers.append(ProjectLayerRecord(id: layer.id, name: layer.name,
-                isVisible: layer.isVisible, transform: transform, imageFile: layer.imageFile, parentID: layer.parentID, isGroup: layer.isGroup, opacity: layer.opacity, blendMode: layer.blendMode, maskFile: layer.maskFile, maskEnabled: layer.maskEnabled, maskSourceID: layer.maskSourceID, adjustment: layer.adjustment,
-                maskPlacement: layer.maskPlacement.map { placement -> LayerTransform in
-                    var moved = placement
-                    moved.origin.x += offset.x
-                    moved.origin.y += offset.y
-                    return moved
-                }, maskLinked: layer.maskLinked, shape: layer.shape, text: layer.text))
+            let moved = layer.translated(by: offset)
+            guard moved.transform.isValid else { throw ProjectError.tooLarge }
+            manifest.layers.append(moved)
         }
         var images = snapshot.images
         // A colored extension is separate bottom-layer content. The old canvas
         // intersection remains transparent, including holes in the existing artwork.
         if let color = options.fill, options.width > old.width || options.height > old.height {
+            // The extension is a layer of its own: past the layer cap that's the reason, not the pixel budget.
+            guard manifest.layers.count < LayerLimitError.maximum else { throw LayerLimitError() }
             let used = images.values.reduce(0) { $0 + $1.image.width * $1.image.height }
-            guard options.width * options.height <= DocumentLimits.documentPixelBudget - used,
-                  manifest.layers.count < 10_000 else { throw ProjectError.tooLarge }
+            guard options.width * options.height <= DocumentLimits.documentPixelBudget - used else { throw ProjectError.tooLarge }
             guard [color.red, color.green, color.blue].allSatisfy({ $0.isFinite && (0...1).contains($0) }) else {
                 throw ProjectError.invalid
             }

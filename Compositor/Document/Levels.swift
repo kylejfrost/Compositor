@@ -152,6 +152,7 @@ extension EditorSession {
         commitTransform(); cancelCrop(); cancelLasso()
         guard let layer = activeLayer, let document else { return }
         do {
+            try checkUnlocked(layer, mask: false)
             let edit = try LevelsEdit(layer: layer, selection: selection?.clip(canvas: document.size))
             levels = edit
             let job = edit.previewJob
@@ -210,9 +211,7 @@ extension EditorSession {
                   let current = document?.layers[index], current.asset?.image === edit.original.image,
                   current.transform == edit.transform else { return }
             beginEdit("Levels")
-            document?.layers[index] = ImageLayer(id: current.id, asset: asset, name: current.name, isVisible: current.isVisible,
-                transform: current.transform, parentID: current.parentID, isGroup: false,
-                opacity: current.opacity, blendMode: current.blendMode, mask: current.mask, maskSourceID: current.maskSourceID)
+            document?.layers[index] = current.replacingPixels(asset, transform: current.transform, mask: current.mask)
             endEdit()
         } catch { brushError = error.localizedDescription }
     }

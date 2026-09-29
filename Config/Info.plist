@@ -38,8 +38,6 @@
 			<true/>
 		</dict>
 	</array>
-	<key>SUEnableInstallerLauncherService</key>
-	<true/>
 	<key>SUFeedURL</key>
 	<string>https://raw.githubusercontent.com/robbietilton/Compositor/main/appcast.xml</string>
 	<key>SUPublicEDKey</key>

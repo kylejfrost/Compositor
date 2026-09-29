@@ -1,0 +1,26 @@
+<x:xmpmeta xmlns:x="adobe:ns:meta/">
+ <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+  <rdf:Description rdf:about=""
+    xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+   crs:PresetType="Look"
+   crs:UUID="00000000000000000000000000000004"
+   crs:SupportsAmount="True"
+   crs:SupportsColor="True"
+   crs:SupportsNormalDynamicRange="True"
+   crs:SupportsSceneReferred="True"
+   crs:SupportsOutputReferred="True"
+   crs:RGBTable="98A3E6C323CC972A70970600A15A14C4"
+   crs:Table_98A3E6C323CC972A70970600A15A14C4="+f000Thq-LtcZ?k/4Lnh`nx1/MX1Cs]xw5c^4YBSW2]#4gyLGt^5gmcaKe]yU9Jq0liZ@X$ywteK%e=1UVoZHm:W1!/9VN'hkdprJ#'xYt1dbFEd{oeEyvk9#3XmbRCn#:)D0l3uhP%?n`M#*z%{/q{Qxi=|srtR9P8GO++*XX)Eal:wDkCWDCMO`/gKxY?^W!WAw#gCJTUeOHB1o@@o3xg#r$0AS%9tc@@dfi5@y/y0Dpsqj:3$pmsPP!K7SRAi]S*lsRNj.LYW]e:9bO3`gA)x[{eoOG{S8%bjFTkssrFWn:DC^HIK`t.M8i{WhFZ?7im^8y6zkZHy+EdVXDE0CKh`+%AQ)K0jNMxpQX#6f^(9uHL(5(DVF`I223}Pe(Pl`y-lwW3ADZd.?$SJZWv+g`F153%4nQo5IGu]b?GFM|{+QOEfn?:CLe#xdVB2sF*Mgqbx=WVn618.#}NoTl$5+qepP%PN3ZxbEH3KcLsKP5]3/85!TkjHYbzsWXy5Hr{D.41VZy4TjmLjOaGd-}E8R0[qfDH/Oj]h{A3c]zAyh{N5P879l{8a)D2qLnI[Essi@857F$HgyNwyctYv|9BVq9k=ZDe`e`X$l?c*|fqWybfE(`V5M.^nfC7D+G}7y46pLZ#DGrxNp)N]`0iu:O!49uTd+%OG!{^m7S+2n[ODAee94=c)Au=sjEW$P3?qvl-`4%z?c30FNzNitfAm+2LJ|Wg65mixzLS5ylGTUgaK2t4i3!4*=Xk5yR`b6//O]Q5$-0NKmb(rXBPDw4fGE8$J8nL]S^Wv@^Qa/}Pb">
+   <crs:Name>
+    <rdf:Alt>
+     <rdf:li xml:lang="x-default">Rec2020 Extend</rdf:li>
+    </rdf:Alt>
+   </crs:Name>
+   <crs:Group>
+    <rdf:Alt>
+     <rdf:li xml:lang="x-default">Synthetic</rdf:li>
+    </rdf:Alt>
+   </crs:Group>
+  </rdf:Description>
+ </rdf:RDF>
+</x:xmpmeta>

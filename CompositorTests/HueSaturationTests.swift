@@ -280,4 +280,82 @@ struct HueSaturationTests {
         #expect(HueSaturationFilter.adjustedSaturation(0, by: 100) == 0)
         #expect(abs(HueSaturationFilter.adjustedSaturation(0.6, by: -50) - 0.3) < 1e-9)
     }
+
+    /// A `hue2` payload: version 2, the colorize flag and a pad byte, colorization and Master (hue, saturation,
+    /// lightness), then for reds through magentas the band (falloff start, range start, range end, falloff end) and
+    /// the hue, saturation and lightness. Ranges not in `ranges` keep Photoshop's default band and no change.
+    private func hue2(colorize: Bool = false, colorization: [Int16] = [0, 25, 0], master: [Int16] = [0, 0, 0],
+                      ranges: [ColorRange: (band: [Int16], values: [Int16])] = [:]) -> Data {
+        var data = Data([0, 2, colorize ? 1 : 0, 0])
+        func append(_ values: [Int16]) {
+            for value in values.map(UInt16.init(bitPattern:)) { data.append(contentsOf: [UInt8(value >> 8), UInt8(value & 0xff)]) }
+        }
+        append(colorization)
+        append(master)
+        for range in ColorRange.colorRanges {
+            let entry = ranges[range] ?? (range.defaultBand.handles.map { Int16($0) }, [0, 0, 0])
+            append(entry.band)
+            append(entry.values)
+        }
+        return data
+    }
+
+    /// `block` as the `hue2` of a Photoshop adjustment layer, read back as Compositor's settings.
+    private func importedHueSaturation(_ block: Data) throws -> HueSaturationSettings? {
+        var layer = PSDRecord(id: UUID(), name: "Hue/Saturation 1")
+        layer.extras = PSDLayerExtras(blocks: [PSDTaggedBlock(key: "hue2", data: block)])
+        let composite = try #require(try BrushRaster.context(width: 1, height: 1, mask: false).makeImage())
+        let data = try PSDFixture.data(PSDDocument(width: 1, height: 1, resolution: 72, layers: [layer]), composite: composite)
+        let adjustment = try PSDReader.read(data).layers.first?.adjustment
+        #expect(adjustment?.kind == .hsv)
+        return adjustment?.hsvSettings
+    }
+
+    @Test func photoshopHueSaturationImportsEachRangeIntoItsOwn() throws {
+        let settings = try #require(try importedHueSaturation(hue2(master: [10, -20, 5], ranges: [
+            .reds: ([320, 350, 20, 50], [30, 0, 0]),
+            .greens: ([70, 100, 140, 170], [0, 40, -10]),
+            .cyans: ([0, 0, 0, 0], [0, 0, 0]),
+            .magentas: ([-100, -70, -40, -10], [0, 0, 0]),
+        ])))
+        #expect(!settings.colorize)
+        #expect(settings.adjustments[.master] == RangeAdjustment(hue: 10, saturation: -20, lightness: 5))
+        #expect(settings.adjustments[.reds] == RangeAdjustment(hue: 30, saturation: 0, lightness: 0))
+        #expect(settings.adjustments[.greens] == RangeAdjustment(hue: 0, saturation: 40, lightness: -10))
+        #expect(settings.adjustments[.yellows] == RangeAdjustment())
+        // Each band is the file's, not the default: reds wraps past 0°, magentas' negative degrees are read around
+        // the circle.
+        #expect(settings.bands[.reds] == HueBand(falloffStart: 320, rangeStart: 350, rangeEnd: 20, falloffEnd: 50))
+        #expect(settings.bands[.greens] == HueBand(falloffStart: 70, rangeStart: 100, rangeEnd: 140, falloffEnd: 170))
+        #expect(settings.bands[.magentas] == HueBand(falloffStart: 260, rangeStart: 290, rangeEnd: 320, falloffEnd: 350))
+        // A band that covers nothing keeps the default.
+        #expect(settings.bands[.cyans] == ColorRange.cyans.defaultBand)
+
+        // Colorizing shows the colorization values, not Master's.
+        let colorized = try #require(try importedHueSaturation(hue2(colorize: true, colorization: [200, 50, -10], master: [10, -20, 5])))
+        #expect(colorized.colorize)
+        #expect(colorized.hue == 200 && colorized.saturation == 50 && colorized.lightness == -10)
+    }
+
+    /// Compositor's bands span at most 350° (`HueBand.setHandle`); a wider Photoshop band is narrowed to that from its
+    /// falloff start, and the import says so.
+    @Test func photoshopHueBandWiderThanCompositorAllowsIsNarrowedWithANote() throws {
+        let block = hue2(ranges: [.blues: ([200, 210, 195, 199], [0, 0, 0]), .greens: ([70, 100, 140, 170], [0, 0, 0])])
+        let settings = try #require(try importedHueSaturation(block))
+        let blues = try #require(settings.bands[.blues])
+        #expect(blues == HueBand(falloffStart: 200, rangeStart: 210, rangeEnd: 190, falloffEnd: 190))
+        // Narrowed, it is a band the handles can edit: a wider one refuses every move.
+        var moved = blues
+        moved.setHandle(1, to: 220)
+        #expect(moved.rangeStart == 220)
+        #expect(settings.bands[.greens] == HueBand(falloffStart: 70, rangeStart: 100, rangeEnd: 140, falloffEnd: 170))
+
+        var layer = PSDRecord(id: UUID(), name: "Hue/Saturation 1")
+        layer.extras = PSDLayerExtras(blocks: [PSDTaggedBlock(key: "hue2", data: block)])
+        let composite = try #require(try BrushRaster.context(width: 1, height: 1, mask: false).makeImage())
+        let data = try PSDFixture.data(PSDDocument(width: 1, height: 1, resolution: 72, layers: [layer]), composite: composite)
+        let imported = try PSDDocumentBuilder.makeImport(try PSDReader.read(data))
+        #expect(imported.conversions.count == 2)
+        #expect(imported.conversions.contains { $0.message.contains("Blues") && $0.message.contains("350°") })
+    }
 }

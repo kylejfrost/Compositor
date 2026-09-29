@@ -56,6 +56,7 @@ struct FloatingPanelTests {
     @Test(arguments: AdjustmentKind.allCases.filter(\.isEditable))
     func adjustmentEditorsUseMovableNonmodalPanels(_ kind: AdjustmentKind) async throws {
         activateTestHost()
+        _ = ProfileTestSupport.locations
         let session = try sessionWithPixels()
         session.addAdjustment(kind)
         await session.beginAdjustmentEditing(try #require(session.adjustmentEditingID))
@@ -66,6 +67,7 @@ struct FloatingPanelTests {
         case .hsv: controller.show(title: "Hue/Saturation", content: HueSaturationSheet(session: session))
         case .curves, .exposure, .gradientMap, .grain, .blackWhite, .colorBalance, .gaussianBlur, .motionBlur, .addNoise:
             controller.show(title: kind.rawValue, content: FilterSheet(session: session))
+        case .profile: controller.show(title: "Profile", content: ProfileBrowserSheet(session: session))
         case .invert: return   // filtered out above: no editor, so no panel to test
         }
         settle()
@@ -78,6 +80,7 @@ struct FloatingPanelTests {
         panel.performClose(nil)
         #expect(session.adjustmentEditingID == nil)
         #expect(session.levels == nil && session.hueSaturation == nil && session.filterEdit == nil)
+        #expect(session.profileEdit == nil)
     }
 
     /// Camera Raw docks to the document window. That frame must not become the place

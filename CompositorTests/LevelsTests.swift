@@ -113,6 +113,17 @@ struct LevelsTests {
         let result = try await ImageExporter.shared.render(loaded)
         #expect(try bytes(result.image) == preview)
     }
+    @Test func levelsKeepsTheLayersEffects() async throws {
+        let session = try session()
+        var effects = LayerEffects(); effects.stroke = StrokeEffect(size: 4)
+        session.setEffects(effects)
+        session.beginLevels()
+        var settings = LevelsSettings(); settings.current = LevelRange(outputBlack: 255, outputWhite: 0)
+        session.updateLevels(settings, preview: false)
+        await session.commitLevels()
+        #expect(session.history.undoName == "Levels")
+        #expect(session.activeLayer?.effects == effects)
+    }
     @Test func stalePreviewCannotReturnAfterOffOrReopen() async throws {
         let session = try session()
         session.beginLevels()
@@ -196,5 +207,24 @@ struct LevelsTests {
         view.cacheDisplay(in: view.bounds, to: bitmap)
         try #require(bitmap.representation(using: .png, properties: [:])).write(to: URL(fileURLWithPath: "/tmp/compositor-levels-panel.png"))
         window.orderOut(nil); session.cancelLevels()
+    }
+    /// Photoshop's `levl` stores each gamma as gamma × 100 (10…999): composite RGB first, then red, green and blue.
+    @Test func photoshopLevelsGammaIsAHundredthOfItsStoredValue() throws {
+        var levl = Data([0, 2])
+        func channel(black: UInt16 = 0, white: UInt16 = 255, outputBlack: UInt16 = 0, outputWhite: UInt16 = 255, gamma: UInt16 = 100) {
+            for value in [black, white, outputBlack, outputWhite, gamma] { levl.append(contentsOf: [UInt8(value >> 8), UInt8(value & 0xff)]) }
+        }
+        channel(black: 10, white: 240, outputBlack: 5, outputWhite: 250, gamma: 150)
+        channel(gamma: 999)
+        channel(gamma: 10)
+        for _ in 3..<29 { channel() }
+        var layer = PSDRecord(id: UUID(), name: "Levels 1")
+        layer.extras = PSDLayerExtras(blocks: [PSDTaggedBlock(key: "levl", data: levl)])
+        let composite = try image([[0, 0, 0, 255]])
+        let data = try PSDFixture.data(PSDDocument(width: 1, height: 1, resolution: 72, layers: [layer]), composite: composite)
+        let adjustment = try #require(try PSDReader.read(data).layers.first?.adjustment)
+        #expect(adjustment.kind == .levels)
+        #expect(adjustment.levels.ranges[0] == LevelRange(black: 10, gamma: 1.5, white: 240, outputBlack: 5, outputWhite: 250))
+        #expect(adjustment.levels.ranges.map(\.gamma) == [1.5, 9.99, 0.1, 1])
     }
 }

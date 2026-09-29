@@ -1,0 +1,26 @@
+<x:xmpmeta xmlns:x="adobe:ns:meta/">
+ <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+  <rdf:Description rdf:about=""
+    xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+   crs:PresetType="Look"
+   crs:UUID="00000000000000000000000000000008"
+   crs:SupportsAmount="True"
+   crs:SupportsColor="True"
+   crs:SupportsNormalDynamicRange="True"
+   crs:SupportsSceneReferred="True"
+   crs:SupportsOutputReferred="True"
+   crs:LookTable="DAB2DAF45FBBD5220C0D2C9E508F19BF"
+   crs:Table_DAB2DAF45FBBD5220C0D2C9E508F19BF="13000KZk$uzz]:0v0%/wa5A12do7HRQ/e[Pgnj29g6'Gg'^*)1W@#JA0U-zr}h#20TnNaz">
+   <crs:Name>
+    <rdf:Alt>
+     <rdf:li xml:lang="x-default">Hue Flat</rdf:li>
+    </rdf:Alt>
+   </crs:Name>
+   <crs:Group>
+    <rdf:Alt>
+     <rdf:li xml:lang="x-default">Synthetic</rdf:li>
+    </rdf:Alt>
+   </crs:Group>
+  </rdf:Description>
+ </rdf:RDF>
+</x:xmpmeta>

@@ -1,0 +1,26 @@
+<x:xmpmeta xmlns:x="adobe:ns:meta/">
+ <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+  <rdf:Description rdf:about=""
+    xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+   crs:PresetType="Look"
+   crs:UUID="00000000000000000000000000000003"
+   crs:SupportsAmount="True"
+   crs:SupportsColor="True"
+   crs:SupportsNormalDynamicRange="True"
+   crs:SupportsSceneReferred="True"
+   crs:SupportsOutputReferred="True"
+   crs:RGBTable="3A269E8A8EB7A03F0711409691FCD533"
+   crs:Table_3A269E8A8EB7A03F0711409691FCD533="=o000z83S!S2G{kloOEN8JuOHWH0FaV#8sz^ny#StHH05nzK^5nxqeaVq^qV%OMra/QFLw[JrLr1oZ=UCdOEn@d(b=wBOvhxEQd@nbY!)hHfBQ=!^7F|sixdV66^WTj0-lgo{Au)^jQ7x%Hroe+]'zP+8tG]z=b/YF(V+gGcJqKJk%Wkc2PK)JX'^X'jg-O9I!=kd$8H2vAXsMpw^r=mb^sO?e7k}*@!LoS8Vf8FqRZC{{HWnU(O3b`chtTVJz^Rv4Qyr38o7Q:`(nn`l+|tDt@94#'o/#o$=KdA}WL`cri+$'wT}0yFxnnz5'bW?WbE=?[|jCbGhg#vT{x9{(|wkzc^?lSxp*-T[i3c.pW.uYLwO9|64J?S!Ocx@@+Dza|9PcN{l[Wj7!Vq01|uUWgJUTRZ*vG9-YD:'uV'nMzs-GgX:1+ZFK6(GMpwQ[idE|Qhxj[@Eg4hMpeoJ`/oYb|dF@E)3.8izYE3Y@Cbdq974=F3q%nK`kcR)PTie`vIx*BF')Q[Zgv@^oOOdr**g./KIJ7h]zCJzrol@9^8j/3%.%Z2}KG4:#7DDO}q/Ub}Eg4mynnSjiHblNb0-a?ai/7zQ9B[*'QI{Sr-)wwaOS8CsLT.2`m$9KERn1V0V:/niwA`rgs97hXnq{nyoj4WN4%)@a]]FFPe?(2wmg4.}^C'9RDOq9WfH::@'VO#3T%Ut6O'xa])Cu4k:71M?A]8Sql6i%OE}4Am?hoE:F{{dNY.6u-$Ji(AvOS4DXbs/uLHD$@$sn*s!J{j7xz^VJd){`1`:Xe.R-=Rr=maG$wgNeW)8ER}BJq$NjA/YS7q-.#I2V'rO$-:@'VO7feh8H#f]]fx'[YWUwQOgFX]sp.i2*L|hV/y9Z{Errw2%hJz!u]vVw][Qixn(Ca=@}v:{@Be1D@Mh5lBRnDe}n-975^HO@BXDEh}bsTgA{t3Fmld=Mp:4O$-%IY]q.gV/=p[S|+IUM9Vo1oq+EH6`}Y/g#6g.F+@R+6Y7N?e#B">
+   <crs:Name>
+    <rdf:Alt>
+     <rdf:li xml:lang="x-default">Film ProPhoto</rdf:li>
+    </rdf:Alt>
+   </crs:Name>
+   <crs:Group>
+    <rdf:Alt>
+     <rdf:li xml:lang="x-default">Synthetic</rdf:li>
+    </rdf:Alt>
+   </crs:Group>
+  </rdf:Description>
+ </rdf:RDF>
+</x:xmpmeta>

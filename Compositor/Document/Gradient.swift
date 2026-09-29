@@ -118,6 +118,25 @@ extension EditorSession {
         if gradientEdit === edit { cancelGradient() }
     }
 
+    /// Draws a gradient from `from` to `to` (document pixels) over a layer's pixels or, with `mask`, its mask, without
+    /// the Gradient tool or its settings, inside the selection when there is one. `colors` are its two ends, already in
+    /// order (sRGB for pixels, gray for a mask); beyond them the end colors continue. One undo step ("Gradient", or
+    /// "Gradient Mask").
+    func applyGradient(on id: UUID, mask: Bool, shape: GradientShape, from: CGPoint, to: CGPoint, colors: [CGColor],
+                       opacity: CGFloat) async throws {
+        guard [from.x, from.y, to.x, to.y, opacity].allSatisfy(\.isFinite), hypot(to.x - from.x, to.y - from.y) >= 0.5 else {
+            throw PixelEditError("A gradient needs two ends at least half a pixel apart.")
+        }
+        guard colors.count == 2 else { throw PixelEditError("A gradient needs two colors.") }
+        guard canPaint(id, mask: mask), let layer = document?.layers.first(where: { $0.id == id }) else { throw PixelEditError.cannotPaint }
+        finishOpacityEdit()
+        let raster = try makeRasterEdit(for: layer, mask: mask)
+        try raster.fillGradient(shape, from: from, to: to, colors: colors, opacity: opacity)
+        guard !raster.patches.isEmpty else { return }
+        try await commitRasterEdit(raster, name: mask ? "Gradient Mask" : "Gradient")
+        brushRevision += 1
+    }
+
     /// Switching tools, layers, or targets applies the pending gradient, as in Photoshop.
     func resolveGradient() {
         guard gradientEdit != nil else { return }

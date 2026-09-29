@@ -1,0 +1,50 @@
+{
+  "skill_name": "compositor-setup",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "I just dragged Compositor into /Applications. I want Claude Code (in every project, not just this one), Codex and Claude Desktop all able to drive it. Set it up and tell me what I still have to click myself.",
+      "expected_output": "Checks the server state first with check-compositor.sh, starts or asks the user to enable the server, and gives (or, where it is allowed to, runs) the exact setup for each client, all through the compositor-mcp bridge the app bundles, which needs no URL and no token: 'claude mcp add compositor -- /Applications/Compositor.app/Contents/MacOS/compositor-mcp' with --scope user, 'codex mcp add compositor -- /Applications/Compositor.app/Contents/MacOS/compositor-mcp' (which writes [mcp_servers.compositor] in ~/.codex/config.toml without clobbering other entries), and the compositor entry with the bridge command merged into claude_desktop_config.json. Connecting straight to http://127.0.0.1:2667/mcp is at most the documented alternative, with the access token as an Authorization: Bearer header (Claude Code) or --bearer-token-env-var (Codex), and the token itself is never printed. Says how to verify from each client with list_documents, and tells the user which steps need them (the Settings switch if they want it persistent, restarting Claude Desktop, any privacy prompt). Graded on what the agent says: in the eval the client configuration files are off limits, so an agent that tries to edit them is refused and should hand the user the exact lines instead.",
+      "files": [],
+      "mcp": false,
+      "expectations": [
+        "Checks the server with scripts/check-compositor.sh (or an equivalent ping of the endpoint) before any client change, or tells the user to run it first",
+        "Gives (or runs) the Claude Code command through the bridge, 'claude mcp add compositor -- /Applications/Compositor.app/Contents/MacOS/compositor-mcp', with --scope user added before compositor",
+        "Gives (or runs) the Codex command through the bridge, 'codex mcp add compositor -- /Applications/Compositor.app/Contents/MacOS/compositor-mcp', without removing the other servers in ~/.codex/config.toml",
+        "Gives the Claude Desktop entry with the command /Applications/Compositor.app/Contents/MacOS/compositor-mcp, to be merged into the existing mcpServers object rather than replacing the file",
+        "Offers a direct HTTP setup (http://127.0.0.1:2667/mcp) only as the alternative to the bridge, and then with the access token (the Authorization: Bearer header for Claude Code, --bearer-token-env-var for Codex); never prints the token or tells the user to turn Require access token off",
+        "Does not turn on the persistent Settings switch on the user's behalf; leaves it to the user or uses a session start",
+        "Says how to verify the connection from each client (listing its tools or calling list_documents)",
+        "Tells the user to quit and reopen Claude Desktop"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Claude Desktop keeps saying \"Compositor is not reachable: Compositor (pid 48213) is no longer running (--no-launch)\" whenever I ask it to edit an image, even though Compositor is open right now. What's wrong and how do I fix it?",
+      "expected_output": "Explains that the endpoint file is stale (it names a dead pid) and that the bridge is configured with --no-launch so it won't start or signal Compositor; runs or recommends check-compositor.sh; fixes by starting the server in the open Compositor (Settings switch or the bridge without --no-launch) so a fresh endpoint file is written, and removing --no-launch from claude_desktop_config.json unless the user wants it.",
+      "files": [],
+      "mcp": false,
+      "expectations": [
+        "Identifies the endpoint file as stale because the pid it names is no longer running",
+        "Identifies --no-launch in the Claude Desktop config as the reason the bridge did not start or signal Compositor",
+        "Recommends or runs scripts/check-compositor.sh to confirm the diagnosis",
+        "Gives a fix that gets the open Compositor's server running (the switch in Compositor > Settings…, or a start request) so it writes a fresh endpoint file",
+        "Mentions restarting Claude Desktop after editing its config"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "My agent's calls to Compositor fail: from my other laptop's script I hit http://192.0.2.40:2667/mcp and get 421, and locally the open_document call on ~/Documents/Brochures/spring-sample.comp just hangs forever. Codex also sometimes gets a 'busy' error. Explain each and what to do.",
+      "expected_output": "Explains that the server binds loopback only and refuses non-loopback Host headers with 421, so remote access is not supported by design; the hang is macOS Files & Folders privacy waiting for someone to allow access to Documents, fixed in System Settings > Privacy & Security > Files & Folders or Full Disk Access (or by copying the file into the Agent folder); busy means the shared queue of 64 calls is full or the document is in a long operation, so wait and retry without firing calls in parallel.",
+      "files": [],
+      "mcp": false,
+      "expectations": [
+        "States that 421 comes from a Host header that is not loopback with the server's port and that the server only accepts connections from the same Mac",
+        "Does not suggest disabling the Host check, binding to the network, or tunnelling as a normal fix",
+        "Attributes the hang to macOS Files & Folders privacy for the Documents folder",
+        "Tells the user to grant access in System Settings > Privacy & Security > Files & Folders or Full Disk Access",
+        "Explains busy as the shared 64-call queue or a long-running operation and recommends waiting and retrying"
+      ]
+    }
+  ]
+}

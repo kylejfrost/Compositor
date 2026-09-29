@@ -64,7 +64,7 @@ extension EditorSession {
         beginEdit("Release Clipping Mask")
         for id in releases {
             if let index = self.document?.layers.firstIndex(where: { $0.id == id }) {
-                self.document?.layers[index].maskSourceID = nil
+                self.document?.layers[index].releaseClipping()
             }
         }
         endEdit()
@@ -86,7 +86,7 @@ nonisolated enum LiveMaskBaker {
             } else {
                 ctx.saveGState(); ctx.concatenate(inverse)
                 LayerRenderer.draw(image, transform: layer.transform, center: layer.transform.center,
-                    opacity: layer.effectiveOpacity(in: records),
+                    opacity: layer.pixelOpacity(in: records),
                     mask: snapshot.mask(for: layer).flatMap { $0.clipImage(placement: $0.placement, over: layer.transform, width: image.width, height: image.height) }, in: ctx)
                 ctx.restoreGState()
             }
@@ -135,8 +135,8 @@ extension EditorSession {
         document?.layers.removeAll { removed.contains($0.id) }
         for i in document?.layers.indices ?? 0..<0 {
             if let source = document?.layers[i].maskSourceID, removed.contains(source) {
-                document?.layers[i].maskSourceID = nil
-                if let asset = baked[document!.layers[i].id] { document?.layers[i].asset = asset }
+                document?.layers[i].releaseClipping()
+                if let layer = document?.layers[i], let asset = baked[layer.id] { document?.layers[i] = layer.releasedIntoPixels(asset) }
             }
         }
         if activeLayerID.map({ removed.contains($0) }) == true {
@@ -164,10 +164,12 @@ extension EditorSession {
         let records = Dictionary(uniqueKeysWithValues: document.layers.map { ($0.id, $0) })
         let live = LiveMaskRenderer(bounds: context.boundingBoxOfClipPath, source: { records[$0]?.maskSourceID }) { id, ctx in
             guard let layer = records[id], let image = layer.asset?.image else { return }
+            // With effects, the image drawn holds its pixels at their Fill and draws at the layer's opacity; without, the
+            // pixels draw at opacity times Fill.
             let opacity = layer.effectiveOpacity(in: records)
             let transform = self.displayedTransform(for: layer)
             let mask = layer.mask?.clipImage(placement: self.displayedMaskPlacement(for: layer), over: transform, width: image.width, height: image.height)
-            let effects = LayerEffectsRenderer.cached(image, mask: mask, effects: layer.effects)
+            let effects = LayerEffectsRenderer.cached(image, mask: mask, effects: layer.effects, fill: layer.fillOpacity)
             func drawLayer(_ mode: LayerBlendMode, _ target: CGContext) {
                 if let effects {
                     let grown = LayerEffectsRenderer.placed(transform, image: effects.image, inset: effects.inset)
@@ -175,7 +177,7 @@ extension EditorSession {
                         blendMode: mode, mask: nil, in: target)
                     return
                 }
-                LayerRenderer.draw(image, transform: transform, center: transform.center, opacity: opacity,
+                LayerRenderer.draw(image, transform: transform, center: transform.center, opacity: layer.pixelOpacity(in: records),
                     blendMode: mode, mask: mask, in: target)
             }
             let mode = self.displayedBlendMode(for: layer)
@@ -184,17 +186,18 @@ extension EditorSession {
             drawLayer(mode, ctx)
         }
         live.adjustment = { records[$0]?.adjustment }
-        live.adjustmentOpacity = { records[$0]?.effectiveOpacity(in: records) ?? 1 }
+        live.adjustmentOpacity = { records[$0]?.pixelOpacity(in: records) ?? 1 }
         live.adjustmentClip = { id, ctx in
-            if let layer = records[id], let image = layer.mask?.enabledImage {
-                FolderMaskClip(image: image, transform: layer.transform).apply(center: layer.transform.center, in: ctx)
+            if let layer = records[id],
+               let clip = FolderMaskClip(layer.mask, placement: self.displayedMaskPlacement(for: layer), over: layer.transform) {
+                clip.apply(center: layer.transform.center, in: ctx)
             }
         }
         live.prepareStacks(document.renderLayers.map(\.id), parent: { records[$0]?.parentID }, blend: { records[$0].map { self.displayedBlendMode(for: $0) } ?? .normal })
         FolderMaskClip.draw(document.renderLayers.map(\.id), parent: { records[$0]?.parentID }, clip: { id in
-            guard let folder = records[id], let image = folder.mask?.enabledImage else { return nil }
+            guard let folder = records[id] else { return nil }
             let transform = self.displayedTransform(for: folder)
-            let clip = FolderMaskClip(image: image, transform: transform)
+            guard let clip = FolderMaskClip(folder.mask, placement: self.displayedMaskPlacement(for: folder), over: transform) else { return nil }
             return { clip.apply(center: transform.center, in: $0) }
         }, in: context) { live.drawComposite($0, in: context) }
     }
@@ -213,7 +216,7 @@ extension EditorSession {
     /// Option-click clips to the next lower sibling, sharing its base when it is already clipped.
     func toggleClippingMask(_ id: UUID) {
         guard canEditLayers, let layers = document?.layers,
-              let layer = layers.first(where: { $0.id == id }), !layer.isGroup else { return }
+              let layer = layers.first(where: { $0.id == id }), !layer.isGroup, unlocked([id], for: .all) else { return }
         if layer.maskSourceID != nil { removeLiveMask(from: id); return }
         let siblings = layers.filter { $0.parentID == layer.parentID }
         guard let index = siblings.firstIndex(where: { $0.id == id }), index > 0 else { return }
@@ -233,6 +236,25 @@ extension EditorSession {
                 } else { base = layer.isGroup ? nil : layer.id }
             }
         }
-        for i in layers.indices where release.contains(layers[i].id) { layers[i].maskSourceID = nil }
+        for i in layers.indices where release.contains(layers[i].id) { layers[i].releaseClipping() }
+    }
+}
+
+extension ImageLayer {
+    /// Stops clipping the layer to its live base. The Photoshop file's clipping byte goes too, or a PSD save would
+    /// clip the layer to whatever folder, adjustment or placeholder now lies below it, which Compositor doesn't show.
+    /// With that, a nonzero byte on a layer without a `maskSourceID` means only a clip the importer couldn't model.
+    mutating func releaseClipping() {
+        maskSourceID = nil
+        psdExtras?.clippingByte = 0
+    }
+
+    /// The layer, its clip released, drawn from `baked`: its pixels with the clip applied (`LiveMaskBaker.bake`).
+    /// Those pixels no longer show a smart object's contents, text or shape, so it becomes plain pixels
+    /// (`replacingPixels`), in place, keeping its mask.
+    func releasedIntoPixels(_ baked: ImportedImage) -> ImageLayer {
+        var layer = self
+        layer.releaseClipping()
+        return layer.replacingPixels(baked, transform: transform, mask: mask)
     }
 }

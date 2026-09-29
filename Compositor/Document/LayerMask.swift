@@ -12,6 +12,9 @@ nonisolated struct LayerMask: Equatable, @unchecked Sendable {
     /// Linked, layer and mask move together; unlinked, each transforms on its own, as in Photoshop.
     var isLinked = true
     var enabledImage: CGImage? { isEnabled ? asset.image : nil }
+    /// Mask pixels a project holds at most, all its masks together (`ProjectStore`): a document's budget of their own,
+    /// beside the layers' (`DocumentLimits.documentPixelBudget`).
+    static let maximumProjectPixels = DocumentLimits.documentPixelBudget
 
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.asset.image === rhs.asset.image && lhs.isEnabled == rhs.isEnabled && lhs.placement == rhs.placement && lhs.isLinked == rhs.isLinked
@@ -126,9 +129,11 @@ nonisolated struct LayerMask: Equatable, @unchecked Sendable {
 }
 
 /// Masks resampled into their layers' grids (`LayerMask.clipImage`), so redraws reuse them; the least recently used
-/// go beyond a few entries or a pixel budget.
+/// go beyond `capacity` entries or a pixel budget. Every redraw asks for each placed mask in turn, so the capacity
+/// is well above the placed masks a document usually has: fewer entries than that would all miss, every redraw.
 nonisolated final class MaskPlacementCache: @unchecked Sendable {
     static let shared = MaskPlacementCache()
+    static let capacity = 64
     private struct Entry {
         let mask: CGImage
         let placement: LayerTransform
@@ -156,7 +161,7 @@ nonisolated final class MaskPlacementCache: @unchecked Sendable {
         guard width * height <= 64_000_000 else { return image }
         lock.lock()
         entries.append(Entry(mask: mask, placement: placement, layer: layer, width: width, height: height, image: image, lastUse: clock))
-        while entries.count > 8 || entries.reduce(0, { $0 + $1.width * $1.height }) > 64_000_000,
+        while entries.count > Self.capacity || entries.reduce(0, { $0 + $1.width * $1.height }) > 64_000_000,
               let oldest = entries.indices.min(by: { entries[$0].lastUse < entries[$1].lastUse }) {
             entries.remove(at: oldest)
         }
@@ -209,6 +214,18 @@ nonisolated struct FolderMaskClip {
     }
 }
 
+extension FolderMaskClip {
+    /// The clip for a layer that draws no pixels of its own (a folder or an adjustment layer), whose grid is its
+    /// transform's size: its mask covering that grid, or resampled into it (at most `limit` pixels across) while
+    /// placed apart, exactly as a pixel layer's mask is. Nil while disabled or missing.
+    nonisolated init?(_ mask: LayerMask?, placement: LayerTransform?, over transform: LayerTransform, limit: CGFloat? = nil) {
+        guard let image = mask?.clipImage(placement: placement, over: transform,
+                                          width: Int(transform.size.width.rounded()), height: Int(transform.size.height.rounded()),
+                                          limit: limit) else { return nil }
+        self.init(image: image, transform: transform)
+    }
+}
+
 extension ProjectSnapshot {
     nonisolated func mask(for layer: ProjectLayerRecord) -> LayerMask? {
         guard layer.maskFile != nil, let asset = masks[layer.id] else { return nil }
@@ -239,7 +256,7 @@ extension EditorSession {
     /// for Option-click, Hide Selection. The selection is used up and deselected in the same undo step.
     func addMask(revealing: Bool = true) {
         guard let selection else { addLayerMask(revealing: revealing); return }
-        guard canEditMask, let layer = activeLayer, layer.mask == nil,
+        guard canEditMask, let layer = activeLayer, layer.mask == nil, unlocked([layer.id], for: .all),
               let index = document?.layers.firstIndex(where: { $0.id == layer.id }) else { return }
         // Mask pixels cover the layer's own pixel grid, like every other mask.
         let width = layer.asset?.image.width ?? Int(layer.size.width.rounded())
@@ -269,7 +286,8 @@ extension EditorSession {
     /// A plain all-white (reveal) or all-black (hide) mask, whatever is selected.
     func addLayerMask(revealing: Bool = true) {
         guard canEditMask, activeLayer?.mask == nil, let mask = LayerMask.solid(revealing: revealing),
-              let index = document?.layers.firstIndex(where: { $0.id == activeLayerID }) else { return }
+              let id = activeLayerID, unlocked([id], for: .all),
+              let index = document?.layers.firstIndex(where: { $0.id == id }) else { return }
         finishOpacityEdit()
         beginEdit(revealing ? "Add Reveal-All Mask" : "Add Hide-All Mask")
         document?.layers[index].mask = mask
@@ -278,7 +296,8 @@ extension EditorSession {
     }
     func toggleLayerMask() {
         guard canEditMask, activeLayer?.mask != nil,
-              let index = document?.layers.firstIndex(where: { $0.id == activeLayerID }) else { return }
+              let id = activeLayerID, unlocked([id], for: .all),
+              let index = document?.layers.firstIndex(where: { $0.id == id }) else { return }
         finishOpacityEdit()
         beginEdit(activeLayer?.mask?.isEnabled == true ? "Disable Layer Mask" : "Enable Layer Mask")
         document?.layers[index].mask?.isEnabled.toggle()
@@ -286,7 +305,8 @@ extension EditorSession {
     }
     func deleteLayerMask() {
         guard canEditMask, activeLayer?.mask != nil,
-              let index = document?.layers.firstIndex(where: { $0.id == activeLayerID }) else { return }
+              let id = activeLayerID, unlocked([id], for: .all),
+              let index = document?.layers.firstIndex(where: { $0.id == id }) else { return }
         finishOpacityEdit()
         beginEdit("Delete Layer Mask")
         document?.layers[index].mask = nil
@@ -298,7 +318,7 @@ extension EditorSession {
         guard canEditLayers, source != target, let layers = document?.layers,
               layers.first(where: { $0.id == source })?.mask != nil,
               let layer = layers.first(where: { $0.id == target }) else { return false }
-        return !layer.isGroup
+        return !layer.isGroup && !isHeldByLockAll(target)
     }
     /// Option-dragging a mask thumbnail onto another layer: a copy of the mask, sitting where it sits on the
     /// document, replacing any mask the layer had.
@@ -424,3 +444,37 @@ extension BrushStroke {
     }
 }
 
+extension EditorSession {
+    /// Layer → Layer Mask → Apply: the layer drawn alone into its own pixel grid through its mask, as the canvas shows
+    /// it, those pixels replacing its own and the mask removed, as one "Apply Layer Mask" step. Effects, blending and
+    /// every other property stay; a text or shape layer becomes plain pixels. Folders and adjustment layers have no
+    /// pixels to take a mask, and a disabled mask hides nothing, so those throw, as does a layer without a mask.
+    func applyLayerMask(_ id: UUID) throws {
+        guard canEditLayers, let index = document?.layers.firstIndex(where: { $0.id == id }), let layer = document?.layers[index] else {
+            throw PixelEditError("That layer can't be changed right now.")
+        }
+        guard !layer.isGroup, layer.adjustment == nil, !layer.isPhotoshopPlaceholder else {
+            throw PixelEditError("'\(layer.name)' has no pixels of its own to apply a mask to.")
+        }
+        guard let mask = layer.mask else { throw PixelEditError("'\(layer.name)' has no layer mask.") }
+        guard mask.isEnabled else { throw PixelEditError("The mask of '\(layer.name)' is disabled, so it hides nothing to apply.") }
+        // A layer with no pixels yet keeps none; its mask just goes.
+        var asset: ImportedImage?
+        if let original = layer.asset {
+            let width = original.image.width, height = original.image.height
+            guard width * height <= DocumentLimits.maxSurfacePixels else { throw ProjectError.tooLarge }
+            let clip = mask.clipImage(placement: mask.placement, over: layer.transform, width: width, height: height)
+            let context = try BrushRaster.context(width: width, height: height, mask: false)
+            LayerRenderer.draw(original.image, transform: LayerTransform(origin: .zero, size: CGSize(width: width, height: height)),
+                               center: CGPoint(x: CGFloat(width) / 2, y: CGFloat(height) / 2), mask: clip, in: context)
+            guard let image = context.makeImage() else { throw ExportError.render }
+            asset = ImportedImage(image: image, thumbnail: try PixelAdjust.thumbnail(of: image), name: original.name)
+        }
+        finishOpacityEdit()
+        beginEdit("Apply Layer Mask")
+        document?.layers[index] = layer.replacingPixels(asset, transform: layer.transform, mask: nil)
+        if activeLayerID == id { isMaskSelected = false }
+        endEdit()
+        brushRevision += 1
+    }
+}

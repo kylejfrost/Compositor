@@ -1,0 +1,4 @@
+interface:
+  display_name: "Compositor"
+  short_description: "Drive Compositor's MCP tools safely: selectors, pixel coordinates, undo steps, file flags, render-and-verify."
+  default_prompt: "Use this skill to work in Compositor through its MCP tools: orient with get_app_info and get_document, address layers by id, edit in small checked steps (run_batch for one undo step), render to verify, and export or save without overwriting originals."

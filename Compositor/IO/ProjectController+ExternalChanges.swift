@@ -20,6 +20,27 @@ extension ProjectController {
         externalChanges.pending = false
     }
 
+    /// Watches the document's file when it is a project package, and nothing for a Photoshop file, an image or a new
+    /// document, remembering the package as it is now. Called whenever which file that is may have changed: an open
+    /// or revert that bypasses `open`, a save as another format, an agent's save.
+    func syncProjectWatch() async {
+        guard let url = session.projectURL, session.documentFormat == .comp else { stopWatchingProject(); return }
+        await rememberProjectDigest(for: url)
+        watchProject(at: url)
+    }
+
+    /// Our own write of a project package, from Save or an agent's save (`write`): the watch ignores the events it
+    /// causes, then remembers the package as written. When the package is, or has become (`adopt`), the document's
+    /// file, the watch moves to it.
+    func savingProject<T>(to url: URL, adopt: Bool, _ write: () async throws -> T) async throws -> T {
+        externalChanges.saving = true
+        defer { externalChanges.saving = false }
+        let result = try await write()
+        let isDocumentFile = session.projectURL.map { $0.resolvingSymlinksInPath().path == url.resolvingSymlinksInPath().path } ?? false
+        if adopt || isDocumentFile { await syncProjectWatch() }
+        return result
+    }
+
     /// Remembers the package as it is now, so the next event compares against it.
     func rememberProjectDigest(for url: URL) async {
         externalChanges.knownDigest = await Task.detached(priority: .utility, operation: { try? ProjectDigest.compute(for: url) }).value

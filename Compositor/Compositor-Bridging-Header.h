@@ -6,4 +6,5 @@
 #import "Rendering/LensPixels.h"
 #import "Rendering/ContentFill.h"
 #import "Rendering/AdjustPixels.h"
+#import "Rendering/ProfilePixels.h"
 #import "Rendering/DitherPixels.h"

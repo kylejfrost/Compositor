@@ -32,6 +32,13 @@ nonisolated struct PSDDocument: @unchecked Sendable {
     var resolution: Double
     /// Bottom to top, including folders. Hidden section dividers are not stored.
     var layers: [PSDRecord]
+    /// Everything else the file holds, kept to be written back. Nil only on documents built by hand.
+    var extras: PSDDocumentExtras? = nil
+    /// The mask pixels the document's masks may take altogether, as stored and as import pads them: what the reader
+    /// was given (a project's masks, less those of a document the file is placed into).
+    var maskPixelBudget = LayerMask.maximumProjectPixels
+    /// Read from a Large Document (PSB, version 2) file; what the log reports opening. Compositor writes version 1.
+    var isLargeDocument = false
 }
 
 nonisolated struct PSDRecord: @unchecked Sendable {
@@ -47,18 +54,45 @@ nonisolated struct PSDRecord: @unchecked Sendable {
     var bounds = CGRect.zero
     var image: CGImage?
     var mask: CGImage?
-    /// Where `mask` sits on the document, and the value everywhere outside it: Photoshop stores only the part of a
-    /// mask that isn't that default.
-    var maskBounds = CGRect.zero
-    var maskDefault: UInt8 = 255
+    /// The mask's rectangle on the document as stored, its own size and where it sits; nil without a mask. The
+    /// document builder places the mask there when it isn't the layer's rectangle.
+    var maskBounds: CGRect?
     var maskEnabled = true
     var maskLinked = true
+    /// The layer's mask was left out unread: it would have taken the document's masks past `maskPixelBudget`.
+    var maskOverBudget = false
     var adjustment: LayerAdjustment?
+    /// What the adjustment's settings lose in Compositor, for the conversion report.
+    var adjustmentNotes: [String] = []
     var kind = PSDLayerKind.raster
     var shape: LayerShapeStyle?
+    /// Notes on the live shape, or on why a vector layer stayed pixels when there's more to say than that.
     var shapeNotes: [String] = []
-    /// Parsed Photoshop type, when the `TySh` block maps onto an editable text layer.
-    var text: PSDText.Source?
+    /// The layer's `lfx2`, as Compositor effects (`PSDEffectsReader`). Nil when it has none or they couldn't be read.
+    var effects: LayerEffects?
+    /// What those effects lose in Compositor, for the conversion report.
+    var effectNotes: [String] = []
+    /// A type layer's `TySh`, decoded. Nil when the layer isn't text or its type data couldn't be read.
+    var typeLayer: PSDTypeLayer?
+    /// Photoshop's Fill (`iOpa`), apart from `opacity`.
+    var fillOpacity: Double = 1
+    var locks: LayerLocks = []
+    /// The layer's blocks and record fields, kept to be written back.
+    var extras: PSDLayerExtras?
+    /// The layer's smart object (`SoLd`/`SoLE`), its quads in the unit coordinates of `pixelTransform(canvas:)` and
+    /// its contents from the document's linked-layer entries. Nil when the layer isn't one or its settings couldn't be
+    /// read.
+    var smartObject: LayerSmartObject?
+}
+
+extension PSDRecord {
+    /// Where the layer's pixels are placed: their bounds (the image's own size when the bounds are empty), or the
+    /// whole canvas for a layer without pixels.
+    nonisolated func pixelTransform(canvas: CGSize) -> LayerTransform {
+        guard let image else { return LayerTransform(origin: .zero, size: canvas) }
+        let size = bounds.width > 0 && bounds.height > 0 ? bounds.size : CGSize(width: image.width, height: image.height)
+        return LayerTransform(origin: CGPoint(x: bounds.minX, y: bounds.minY), size: size)
+    }
 }
 
 nonisolated enum PSDLayerKind: Equatable, Sendable {
@@ -95,6 +129,36 @@ extension LayerBlendMode {
         // Dissolve, Darker Color and Lighter Color are deliberately absent: Compositor has no
         // equivalent, so they fall through to Normal and say so in the conversion report.
         default: nil
+        }
+    }
+
+    /// The blend key a PSD writer stores: the inverse of `fromPSD`.
+    nonisolated var psdKey: String {
+        switch self {
+        case .normal: "norm"
+        case .darken: "dark"
+        case .multiply: "mul "
+        case .colorBurn: "idiv"
+        case .linearBurn: "lbrn"
+        case .lighten: "lite"
+        case .screen: "scrn"
+        case .colorDodge: "div "
+        case .linearDodge: "lddg"
+        case .overlay: "over"
+        case .softLight: "sLit"
+        case .hardLight: "hLit"
+        case .vividLight: "vLit"
+        case .linearLight: "lLit"
+        case .pinLight: "pLit"
+        case .hardMix: "hMix"
+        case .difference: "diff"
+        case .exclusion: "smud"
+        case .subtract: "fsub"
+        case .divide: "fdiv"
+        case .hue: "hue "
+        case .saturation: "sat "
+        case .color: "colr"
+        case .luminosity: "lum "
         }
     }
 }

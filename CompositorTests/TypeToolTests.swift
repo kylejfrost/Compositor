@@ -191,6 +191,166 @@ struct TypeToolTests {
         #expect(session.textDraft == nil)
     }
 
+    /// The headless commands agents use: each is one undo step, and none of them changes the Type tool's own settings.
+    @Test func addUpdateAndFitTextAreOneStepEach() throws {
+        let session = makeSession()
+        var style = LayerTextStyle()
+        style.content = "Session text"
+        style.fontSize = 48
+        style.leading = 60
+        let before = session.history.undoCount
+        let id = try session.addTextLayer(style, at: CGPoint(x: 30, y: 40))
+        #expect(session.activeLayerID == id)
+        #expect(session.activeLayer?.liveText?.style == style && session.activeLayer?.name == "Session text")
+        #expect(session.activeLayer?.origin == CGPoint(x: 30, y: 40))
+        #expect(session.history.undoCount == before + 1 && session.history.undoName == "New Text Layer")
+
+        try session.updateTextStyle(id) { $0.content = "Changed text"; $0.red = 1 }
+        #expect(session.activeLayer?.liveText?.style.content == "Changed text" && session.activeLayer?.liveText?.style.red == 1)
+        #expect(session.activeLayer?.origin == CGPoint(x: 30, y: 40))
+        #expect(session.history.undoCount == before + 2 && session.history.undoName == "Edit Text")
+        try session.updateTextStyle(id) { $0.red = 1 }
+        #expect(session.history.undoCount == before + 2)
+        #expect(throws: ProjectError.self) { try session.updateTextStyle(id) { $0.fontSize = 0 } }
+
+        let size = try session.fitText(id, maxWidth: 100)
+        let fitted = try #require(session.activeLayer?.liveText?.style)
+        #expect(size == fitted.fontSize && size < 48 && size >= 1)
+        #expect(abs(fitted.leading - 60 * size / 48) < 0.0001)
+        #expect(EditorSession.textBoxSize(fitted).width - 2 * LayerTextStyle.padding <= 100)
+        #expect(session.history.undoCount == before + 3 && session.history.undoName == "Fit Text")
+        #expect(try session.fitText(id, maxWidth: 10_000) == size)
+        #expect(session.history.undoCount == before + 3)
+        #expect(throws: TextLayerError.self) { try session.fitText(id, maxWidth: 1) }
+        #expect(session.textDefaults == LayerTextStyle())
+
+        try session.updateTextStyle(id) { $0.boxSize = CGSize(width: 200, height: 100) }
+        #expect(throws: TextLayerError.paragraphText) { try session.fitText(id, maxWidth: 100) }
+        let blank = try #require(session.document?.layers.first { $0.liveText == nil }?.id)
+        #expect(throws: TextLayerError.notText) { try session.updateTextStyle(blank) { $0.content = "No" } }
+        session.beginText(at: .zero)
+        #expect(throws: TextLayerError.notEditable) { _ = try session.addTextLayer(style, at: .zero) }
+    }
+
+    /// Point text keeps the point it hangs from — its first baseline at its alignment point — through an edit, as in
+    /// Photoshop, on a turned and scaled layer too: through the headless commands and through the app's own editor,
+    /// which shows the text being typed where the commit puts it.
+    @Test func editingPointTextKeepsItsAlignmentAnchor() throws {
+        let session = makeSession()
+        var style = LayerTextStyle()
+        style.content = "Centered"
+        style.fontSize = 40
+        style.alignment = .center
+        let id = try session.addTextLayer(style, at: CGPoint(x: 200, y: 150))
+        let index = try #require(session.document?.layers.firstIndex { $0.id == id })
+        session.document?.layers[index].transform.rotation = 30
+        session.document?.layers[index].transform.size.width *= 1.5
+        session.document?.layers[index].transform.size.height *= 1.5
+        func anchor() throws -> CGPoint {
+            let layer = try #require(session.document?.layers.first { $0.id == id })
+            let text = try #require(layer.liveText)
+            let local = EditorSession.textAnchor(text.style)
+            return layer.transform.documentPoint(ofUnit: CGPoint(x: local.x / CGFloat(text.image.width),
+                                                                 y: local.y / CGFloat(text.image.height)))
+        }
+        func expectNear(_ a: CGPoint, _ b: CGPoint, _ step: String) {
+            #expect(abs(a.x - b.x) < 0.001 && abs(a.y - b.y) < 0.001, "\(step): \(a) vs \(b)")
+        }
+        let start = try anchor()
+
+        try session.updateTextStyle(id) { $0.content = "Centered, and a lot longer" }
+        expectNear(try anchor(), start, "updateTextStyle")
+        try session.fitText(id, maxWidth: 200)
+        expectNear(try anchor(), start, "fitText")
+
+        session.editActiveText()
+        var draft = try #require(session.textDraft)
+        draft.style.content = "Short"
+        let shown = session.textDraftTransform(draft, size: EditorSession.textBoxSize(draft.style))
+        #expect(session.applyText(draft))
+        expectNear(try anchor(), start, "the app's editor")
+        let committed = try #require(session.document?.layers.first { $0.id == id }?.transform)
+        expectNear(committed.origin, shown.origin, "shown while typing vs committed (origin)")
+        #expect(abs(committed.size.width - shown.size.width) < 0.001 && abs(committed.size.height - shown.size.height) < 0.001)
+        #expect(committed.rotation == 30)
+    }
+
+    /// Image Size scales type by the height: a canvas stretched more one way than the other widens (or narrows) the
+    /// letters by the difference, as Photoshop's type is scaled unevenly.
+    @Test func unevenImageSizeScalesTheWidthOfType() throws {
+        var style = LayerTextStyle()
+        style.content = "Wide"
+        style.fontSize = 20
+        let wider = try #require(style.scaled(x: 3, y: 1.5))
+        #expect(wider.fontSize == 30 && wider.horizontalScale == 2)
+        style.horizontalScale = 2
+        let evened = try #require(style.scaled(x: 1, y: 2))
+        #expect(evened.fontSize == 40 && evened.horizontalScale == nil)
+        #expect(style.scaled(x: 2, y: 2)?.horizontalScale == 2)
+        // 2 × 20 / 2 is beyond the 10× Compositor's text supports.
+        #expect(style.scaled(x: 20, y: 2) == nil)
+    }
+
+    /// A paragraph's box holds its text inside a fixed padding: Image Size scales the text's area, so the text
+    /// wraps as it did.
+    @Test func imageSizeScalesAParagraphsTextArea() throws {
+        var style = LayerTextStyle()
+        style.boxSize = CGSize(width: 100, height: 50)
+        let padding = LayerTextStyle.padding
+        #expect(style.scaled(x: 2, y: 3)?.boxSize == CGSize(width: (100 - 2 * padding) * 2 + 2 * padding,
+                                                            height: (50 - 2 * padding) * 3 + 2 * padding))
+        #expect(style.scaled(x: 0.5, y: 0.5)?.boxSize == CGSize(width: 62, height: 37))
+    }
+
+    /// The editor on the canvas lays unevenly scaled type out as wide as the layer draws it.
+    @Test func theInlineEditorDrawsTypeAsWideAsItsLayer() throws {
+        let session = makeSession()
+        session.beginText(at: .zero)
+        var draft = try #require(session.textDraft)
+        draft.style.content = "HHHH HH"
+        draft.style.fontSize = 40
+        draft.style.tracking = 3
+        draft.style.horizontalScale = 2
+        #expect(session.applyText(draft))
+        let canvas = CanvasView(session: session)
+        session.editActiveText()
+        canvas.synchronizeInlineText()
+        let textView = try #require(canvas.inlineTextEditor?.textView)
+        let layout = try #require(textView.layoutManager), container = try #require(textView.textContainer)
+        layout.ensureLayout(for: container)
+        var plain = draft.style
+        plain.horizontalScale = nil
+        let measured = NSAttributedString(string: plain.content, attributes: EditorSession.textAttributes(plain))
+            .boundingRect(with: CGSize(width: 100_000, height: 100_000), options: [.usesLineFragmentOrigin, .usesFontLeading]).width
+        let shown = layout.usedRect(for: container).width
+        #expect(abs(shown - 2 * measured) < 1, "\(shown) vs \(2 * measured)")
+        // One line, as in the layer.
+        #expect(layout.usedRect(for: container).height < draft.style.lineHeight * 1.5)
+    }
+
+    /// Letters colored on their own keep their colors through a change that leaves them be, and lose them, as the app's
+    /// color swatch makes them, when the text or the whole text's color changes.
+    @Test func newTextOrANewColorDropsLetterColors() throws {
+        let session = makeSession()
+        var style = LayerTextStyle()
+        style.content = "Two tone"
+        style.fontSize = 40
+        let runs = [LayerTextColorRun(location: 0, length: 3, red: 1, green: 0, blue: 0)]
+        style.colorRuns = runs
+        let id = try session.addTextLayer(style, at: .zero)
+        func current() -> [LayerTextColorRun]? { session.document?.layers.first { $0.id == id }?.liveText?.style.colorRuns }
+        #expect(current() == runs)
+        try session.updateTextStyle(id) { $0.fontSize = 48 }
+        #expect(current() == runs)
+        // Shorter than the runs: without dropping them the text would be refused as invalid.
+        try session.updateTextStyle(id) { $0.content = "No" }
+        #expect(current() == nil)
+        try session.updateTextStyle(id) { $0.content = "Two tone"; $0.colorRuns = runs }
+        #expect(current() == runs)
+        try session.updateTextStyle(id) { $0.red = 0.5 }
+        #expect(current() == nil)
+    }
+
     @Test func closeButtonShouldCloseWindowWhileEditingText() async throws {
         let workspace = ProjectWorkspace()
         let session = workspace.current.session

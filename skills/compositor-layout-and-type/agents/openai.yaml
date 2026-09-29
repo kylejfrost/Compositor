@@ -1,0 +1,4 @@
+interface:
+  display_name: "Compositor Layout and Type"
+  short_description: "Design graphics in Compositor, or fix an existing layout: canvas sizes, margins, text fitting, shapes, framing, alignment, QA."
+  default_prompt: "Use this skill to build a social post, story, banner or print piece in Compositor: plan the canvas and margins, set and fit type, place and frame images, align and distribute, check contrast and legibility with renders, then export and save the layered file."

@@ -676,6 +676,19 @@ final class BrushStroke {
         }
     }
 
+    /// Draws `image` over `rect` (document pixels) inside the canvas and selection: composited over the original
+    /// pixels, or with `replacing`, in their place, transparency included.
+    func drawImage(_ image: CGImage, in rect: CGRect, replacing: Bool) throws {
+        let aligned = rect.minX == rect.minX.rounded() && rect.minY == rect.minY.rounded()
+        try paintCanvas { context in
+            if replacing { context.setBlendMode(.copy) }
+            context.interpolationQuality = aligned ? .none : .high
+            context.translateBy(x: rect.minX, y: rect.maxY)
+            context.scaleBy(x: 1, y: -1)
+            context.draw(image, in: CGRect(origin: .zero, size: rect.size))
+        }
+    }
+
     /// Erases image pixels to transparency inside the selection, only where pixels exist.
     func clearPixels() throws {
         try paintCanvas(withinSource: true) { context in

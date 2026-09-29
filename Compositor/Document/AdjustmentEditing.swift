@@ -4,8 +4,15 @@ extension EditorSession {
     /// Uses the ordinary color editors, but sends their changes to layer metadata.
     /// The source is only for the histogram and sampling; it never replaces layer pixels.
     func beginAdjustmentEditing(_ id: UUID) async {
+        // Lock All holds an adjustment's settings (its own or a folder's): the panel doesn't open, and says why.
+        if adjustmentEditingID == id, let document, let layer = document.layers.first(where: { $0.id == id }),
+           let holder = document.lockIndex.blocker(of: .all, on: id) {
+            adjustmentEditingID = nil
+            brushError = LayerLockedError(layerName: layer.name, folderName: holder.id == id ? nil : holder.name).localizedDescription
+            return
+        }
         guard adjustmentEditingID == id, adjustmentOriginal == nil,
-              levels == nil, hueSaturation == nil, filterEdit == nil,
+              levels == nil, hueSaturation == nil, filterEdit == nil, profileEdit == nil,
               let snapshot = projectSnapshot(),
               let index = snapshot.manifest.layers.firstIndex(where: { $0.id == id }),
               let original = snapshot.manifest.layers[index].adjustment else { return }
@@ -24,6 +31,13 @@ extension EditorSession {
             let layer = ImageLayer(asset: asset, origin: .zero)
             switch original.kind {
             case .invert: break
+            case .profile:
+                let edit = ProfileEdit(layerID: id, source: ProfileEdit.thumbnailSource(from: raster.image),
+                                       settings: original.profile)
+                profileEdit = edit
+                // Scanned again each time the browser opens: profiles installed or changed while Compositor runs
+                // (a Lightroom pack, a Camera Raw update) are listed as they are now.
+                edit.loadTask = Task { [weak self] in await self?.refreshProfileIndex(refresh: true) }
             case .levels:
                 let edit = try LevelsEdit(layer: layer, selection: nil)
                 edit.settings = original.levels
@@ -69,6 +83,9 @@ extension EditorSession {
         switch value.kind {
         // Nothing to carry back: Invert has no settings.
         case .invert: break
+        case .profile:
+            guard let profileEdit else { return nil }
+            value.profileSettings = profileEdit.settings
         case .levels:
             guard let levels else { return nil }
             value.levels = levels.settings
@@ -121,6 +138,22 @@ extension EditorSession {
         levels = nil
         hueSaturation = nil
         filterEdit = nil
+        if let profileEdit {
+            // A name that follows the profile follows it to the new one, in the same undo step.
+            // None goes back to the kind's name.
+            let name = document?.layers.first { $0.id == id }?.name
+            let chosen = profileEdit.settings.reference
+            let renamed = chosen?.name ?? AdjustmentKind.profile.rawValue
+            if commit, chosen != profileEdit.original.reference, renamed != name,
+               name == AdjustmentKind.profile.rawValue || name == profileEdit.original.reference?.name {
+                renameLayer(id, to: renamed)
+            }
+            profileEdit.loadTask?.cancel()
+            profileEdit.chooseTask?.cancel()
+            profileEdit.bakeTask?.cancel()
+            profileEdit.thumbnails.cancelAll()
+            self.profileEdit = nil
+        }
         endEdit()
         adjustmentOriginal = nil
         adjustmentEditingID = nil

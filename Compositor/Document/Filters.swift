@@ -486,6 +486,8 @@ extension EditorSession {
         commitTransform(); cancelCrop(); cancelLasso()
         guard var layer = activeLayer, let document else { return }
         do {
+            // Remove Background masks the layer rather than changing its pixels.
+            try checkUnlocked(layer, mask: kind == .removeBackground)
             // An empty layer has no pixels until something is put on it; Vignette starts it with clear ones.
             let startedEmpty = layer.asset == nil
             if startedEmpty {
@@ -650,10 +652,7 @@ extension EditorSession {
                 mask = owned.replacing(try LayerMask.asset(from: carried))
             }
             beginEdit(edit.kind.rawValue)
-            document?.layers[index] = ImageLayer(id: current.id, asset: asset, name: current.name, isVisible: current.isVisible,
-                transform: made.transform ?? current.transform, parentID: current.parentID, isGroup: false,
-                opacity: current.opacity, blendMode: current.blendMode, mask: mask, maskSourceID: current.maskSourceID,
-                effects: current.effects)
+            document?.layers[index] = current.replacingPixels(asset, transform: made.transform ?? current.transform, mask: mask)
             endEdit()
         } catch { brushError = error.localizedDescription }
     }

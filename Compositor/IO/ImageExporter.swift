@@ -18,6 +18,11 @@ actor ImageExporter {
     static let shared = ImageExporter()
 
     func render(_ snapshot: ProjectSnapshot) throws -> ExportRaster {
+        try Self.composite(snapshot)
+    }
+
+    /// What `render` does, callable synchronously from any thread: the PSD writer draws its merged image with it.
+    nonisolated static func composite(_ snapshot: ProjectSnapshot) throws -> ExportRaster {
         let width = snapshot.manifest.width, height = snapshot.manifest.height
         guard (1...DocumentLimits.maxSide).contains(width), (1...DocumentLimits.maxSide).contains(height),
               width * height <= DocumentLimits.maxSurfacePixels else { throw ExportError.tooLarge }
@@ -39,9 +44,11 @@ actor ImageExporter {
             try LiveMaskGraph.validate(snapshot.manifest.layers)
             let live = LiveMaskRenderer(bounds: CGRect(x: 0, y: 0, width: width, height: height), source: { records[$0]?.maskSourceID }) { id, target in
                 guard let layer = records[id], let image = snapshot.images[id]?.image else { return }
+                // With effects, the image drawn holds its pixels at their Fill and draws at the layer's opacity; without, the
+                // pixels draw at opacity times Fill.
                 let opacity = layer.effectiveOpacity(in: records)
                 let mask = snapshot.mask(for: layer).flatMap { $0.clipImage(placement: $0.placement, over: layer.transform, width: image.width, height: image.height) }
-                let effects = LayerEffectsRenderer.cached(image, mask: mask, effects: layer.effects)
+                let effects = LayerEffectsRenderer.cached(image, mask: mask, effects: layer.effects, fill: layer.fillOpacity ?? 1)
                 func drawLayer(_ mode: LayerBlendMode, _ into: CGContext) {
                     if let effects {
                         let grown = LayerEffectsRenderer.placed(layer.transform, image: effects.image, inset: effects.inset)
@@ -50,7 +57,7 @@ actor ImageExporter {
                         return
                     }
                     LayerRenderer.draw(image, transform: layer.transform, center: layer.transform.center,
-                        opacity: opacity, blendMode: mode, mask: mask, in: into)
+                        opacity: layer.pixelOpacity(in: records), blendMode: mode, mask: mask, in: into)
                 }
                 let mode = layer.blendMode ?? .normal
                 // Core Graphics blends these two wrong; see SeparableBlend.
@@ -58,16 +65,18 @@ actor ImageExporter {
                 drawLayer(mode, target)
             }
             live.adjustment = { records[$0]?.adjustment }
-            live.adjustmentOpacity = { records[$0]?.effectiveOpacity(in: records) ?? 1 }
+            live.adjustmentOpacity = { records[$0]?.pixelOpacity(in: records) ?? 1 }
+            // Folders and adjustment layers clip through their masks where they sit, as pixel layers do.
             live.adjustmentClip = { id, ctx in
-                if let layer = records[id], let image = snapshot.mask(for: layer)?.enabledImage {
-                    FolderMaskClip(image: image, transform: layer.transform).apply(center: layer.transform.center, in: ctx)
+                if let layer = records[id], let mask = snapshot.mask(for: layer),
+                   let clip = FolderMaskClip(mask, placement: mask.placement, over: layer.transform) {
+                    clip.apply(center: layer.transform.center, in: ctx)
                 }
             }
             live.prepareStacks(LayerHierarchy.visibleLayers(snapshot.manifest.layers).map(\.id), parent: { records[$0]?.parentID }, blend: { records[$0]?.blendMode ?? .normal })
             FolderMaskClip.draw(LayerHierarchy.visibleLayers(snapshot.manifest.layers).map(\.id), parent: { records[$0]?.parentID }, clip: { id in
-                guard let folder = records[id], let image = snapshot.mask(for: folder)?.enabledImage else { return nil }
-                let clip = FolderMaskClip(image: image, transform: folder.transform)
+                guard let folder = records[id], let mask = snapshot.mask(for: folder),
+                      let clip = FolderMaskClip(mask, placement: mask.placement, over: folder.transform) else { return nil }
                 return { clip.apply(center: folder.transform.center, in: $0) }
             }, in: context) { live.drawComposite($0, in: context) }
             guard let image = context.makeImage() else { throw ExportError.render }

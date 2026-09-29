@@ -61,25 +61,44 @@ nonisolated enum LayerOpacity {
         }
         return opacity
     }
+
+    /// Photoshop's Fill as a factor: 0…1, and 1 when it isn't a number.
+    static func fill(_ fillOpacity: Double) -> Double {
+        fillOpacity.isFinite ? min(1, max(0, fillOpacity)) : 1
+    }
 }
 
+// Photoshop's Fill fades a layer's own pixels and leaves its effects (stroke, shadows, glow, overlay) as they are;
+// Opacity fades both. So a layer's effects draw at `effectiveOpacity` — the pixels inside them already at their Fill
+// (`LayerEffectsRenderer`) — and a layer drawn without effects draws at `pixelOpacity`. A folder's Fill dims what
+// is inside it just as its Opacity does: Compositor draws no folder effects, so a folder's contents are its pixels.
 extension ImageLayer {
-    /// The opacity this layer is drawn at, folders included (see LayerOpacity).
+    /// The opacity this layer's effects are drawn at: its own opacity, folders included (see LayerOpacity).
     func effectiveOpacity(in byID: [UUID: ImageLayer]) -> Double {
-        LayerOpacity.effective(opacity, parent: parentID) { byID[$0].map { ($0.opacity, $0.parentID) } }
+        LayerOpacity.effective(opacity, parent: parentID) { byID[$0].map { ($0.opacity * LayerOpacity.fill($0.fillOpacity), $0.parentID) } }
     }
-    var hierarchyRecord: ProjectLayerRecord {
-        ProjectLayerRecord(id: id, name: name, isVisible: isVisible, transform: transform,
-            imageFile: asset == nil ? nil : "\(id.uuidString).png", parentID: parentID, isGroup: isGroup, opacity: opacity, blendMode: blendMode, maskFile: mask == nil ? nil : "\(id.uuidString).mask.png", maskEnabled: mask?.isEnabled, maskSourceID: maskSourceID, adjustment: adjustment, maskPlacement: mask?.placement, maskLinked: mask?.isLinked)
+    /// The opacity this layer's own pixels are drawn at: `effectiveOpacity` with its Fill multiplied in.
+    func pixelOpacity(in byID: [UUID: ImageLayer]) -> Double {
+        effectiveOpacity(in: byID) * LayerOpacity.fill(fillOpacity)
     }
+    var hierarchyRecord: ProjectLayerRecord { ProjectLayerRecord(layer: self) }
 }
 nonisolated extension ProjectLayerRecord {
-    /// The opacity this layer is drawn at, folders included (see LayerOpacity).
+    /// The opacity this layer's effects are drawn at: its own opacity, folders included (see LayerOpacity).
     func effectiveOpacity(in byID: [UUID: ProjectLayerRecord]) -> Double {
-        LayerOpacity.effective(opacity ?? 1, parent: parentID) { byID[$0].map { ($0.opacity ?? 1, $0.parentID) } }
+        LayerOpacity.effective(opacity ?? 1, parent: parentID) {
+            byID[$0].map { (($0.opacity ?? 1) * LayerOpacity.fill($0.fillOpacity ?? 1), $0.parentID) }
+        }
+    }
+    /// The opacity this layer's own pixels are drawn at: `effectiveOpacity` with its Fill multiplied in.
+    func pixelOpacity(in byID: [UUID: ProjectLayerRecord]) -> Double {
+        effectiveOpacity(in: byID) * LayerOpacity.fill(fillOpacity ?? 1)
     }
 }
 extension CanvasDocument {
+    /// Each layer's `effectiveOpacity`: the strength of its effects. With the layer's own Fill it gives its pixels'
+    /// opacity too (`pixelOpacity`); the pixels alone can't stand for both, since at Fill 0 they are 0 whatever the
+    /// layer's opacity.
     var effectiveOpacities: [UUID: Double] {
         let folders = Dictionary(uniqueKeysWithValues: layers.lazy.map { ($0.id, (opacity: $0.opacity, parentID: $0.parentID)) })
         return folders.mapValues { LayerOpacity.effective($0.opacity, parent: $0.parentID) { folders[$0] } }
@@ -165,7 +184,7 @@ extension EditorSession {
     }
 
     func groupSelectedLayers() {
-        guard canEditLayers, let document, document.layers.count < 10_000 else { return }
+        guard canEditLayers, let document, document.layers.count < LayerLimitError.maximum else { return }
         let byID = Dictionary(uniqueKeysWithValues: document.layers.map { ($0.id, $0) })
         let selected = selectedLayerIDs.intersection(Set(byID.keys))
         func ancestors(_ id: UUID) -> [UUID?] {
@@ -250,7 +269,7 @@ extension EditorSession {
         return result
     }
     func addGroup() {
-        guard canEditLayers, let document, document.layers.count < 10_000 else { return }
+        guard canEditLayers, let document, document.layers.count < LayerLimitError.maximum else { return }
         let names = Set(document.layers.map(\.name))
         var number = 1
         while names.contains("Folder \(number)") { number += 1 }
@@ -307,5 +326,42 @@ extension EditorSession {
         guard let layer = activeLayer, let parent = layer.parentID,
               let group = document?.layers.first(where: { $0.id == parent }) else { return }
         placeLayer(layer.id, in: group.parentID, above: group.id)
+    }
+
+    /// Ungroup: the folder's contents move up into its parent at the folder's place in the stack, keeping their
+    /// order, and the folder goes (its own opacity, mask and effects with it, as in Photoshop). The contents end up
+    /// selected, the topmost active. One undo step, "Ungroup". Returns the moved layers' ids, bottom to top: empty for
+    /// an empty folder (which is still removed), and when `id` is not a folder or layers can't be edited.
+    @discardableResult
+    func ungroup(_ id: UUID) -> [UUID] {
+        guard canEditLayers, let document, let slot = document.layers.firstIndex(where: { $0.id == id }),
+              document.layers[slot].isGroup else { return [] }
+        let parent = document.layers[slot].parentID
+        let contents = document.layers.filter { $0.parentID == id }.map { layer -> ImageLayer in
+            var moved = layer
+            moved.parentID = parent
+            return moved
+        }
+        var layers: [ImageLayer] = []
+        for layer in document.layers where layer.parentID != id {
+            if layer.id == id { layers.append(contentsOf: contents) } else { layers.append(layer) }
+        }
+        Self.releaseDetachedClipping(in: &layers)
+        guard (try? LayerHierarchy.validate(layers.map(\.hierarchyRecord))) != nil else { return [] }
+        finishOpacityEdit()
+        beginEdit("Ungroup")
+        self.document?.layers = layers
+        collapsedGroupIDs.remove(id)
+        if let parent { collapsedGroupIDs.remove(parent) }
+        if let top = contents.last {
+            activeLayerID = top.id
+            selectedLayerIDs = Set(contents.map(\.id))
+        } else if activeLayerID == id {
+            activeLayerID = layers.isEmpty ? nil : layers[min(slot, layers.count - 1)].id
+        } else {
+            selectedLayerIDs.remove(id)
+        }
+        endEdit()
+        return contents.map(\.id)
     }
 }

@@ -104,4 +104,27 @@ struct CanvasSizeTests {
         }
         #expect(session.document?.width == 4)
     }
+
+    @Test func canvasSizeTranslatesEditableLayersWithoutChangingTheirStyles() async throws {
+        let fixture = try EditableLayers()
+        let session = fixture.session
+        let before = try #require(session.document)
+        for anchor in [0, 8] {
+            let result = try await CanvasResizer.shared.resize(try #require(session.projectSnapshot()),
+                to: CanvasSizeOptions(width: 500, height: 300, anchor: anchor))
+            session.applyDocumentSize(result, actionName: "Canvas Size")
+            let offset: CGFloat = anchor == 0 ? 0 : 100
+            for id in [fixture.text, fixture.box, fixture.shape] {
+                let old = try #require(before.layers.first { $0.id == id })
+                let layer = try fixture.layer(id)
+                #expect(layer.transform.origin == CGPoint(x: old.transform.origin.x + offset, y: old.transform.origin.y + offset))
+                #expect(layer.transform.size == old.transform.size)
+                #expect(layer.asset?.image === old.asset?.image)
+                #expect(layer.liveText == old.liveText && layer.liveShape == old.liveShape)
+                #expect(layer.effects == old.effects && layer.effects != nil)
+            }
+            session.undo()
+            #expect(session.document == before)
+        }
+    }
 }

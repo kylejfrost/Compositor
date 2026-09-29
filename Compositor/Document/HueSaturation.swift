@@ -451,7 +451,7 @@ extension EditorSession {
     private func canAdjust(allowingEmpty: Bool) -> Bool {
         _ = showsBusy
         // Text being edited is drawn by its editor, not the layer, so a filter's preview of it would be wrong: commit it first.
-        guard levels == nil, filterEdit == nil, textDraft == nil, document != nil, let layer = activeLayer, !isProjectBusy, !isImporting, brushStroke == nil,
+        guard levels == nil, filterEdit == nil, textDraft == nil, document != nil, let layer = activeLayer, !isProjectBusy, !isImporting, !isHeldByAgentBatch, brushStroke == nil,
               pixelMove == nil, renamingLayerID == nil, !showsNewDocument, !showsImporter,
               selectedLayerIDs.count == 1, !layer.isGroup, !isMaskSelected, layer.asset != nil || allowingEmpty,
               document?.effectiveVisibleIDs.contains(layer.id) == true, selection?.isEmpty != true else { return false }
@@ -464,6 +464,7 @@ extension EditorSession {
         if gradientEdit != nil { resolveGradient() }
         guard let document, let layer = activeLayer, let asset = layer.asset else { return }
         do {
+            try checkUnlocked(layer, mask: false)
             hueSaturation = try HueSaturationEdit(layerID: layer.id, original: asset,
                 selection: try selection?.clip(canvas: document.size), transform: layer.transform)
         } catch { brushError = error.localizedDescription }
@@ -533,10 +534,9 @@ extension EditorSession {
               let index = document?.layers.firstIndex(where: { $0.id == edit.layerID }),
               let current = document?.layers[index], current.asset?.image === edit.original.image else { return }
         beginEdit("Hue/Saturation")
-        document?.layers[index] = ImageLayer(id: current.id,
-            asset: ImportedImage(image: adjusted.image, thumbnail: adjusted.thumbnail ?? adjusted.image, name: current.name),
-            name: current.name, isVisible: current.isVisible, transform: current.transform, parentID: current.parentID,
-            isGroup: false, opacity: current.opacity, blendMode: current.blendMode, mask: current.mask, maskSourceID: current.maskSourceID)
+        document?.layers[index] = current.replacingPixels(
+            ImportedImage(image: adjusted.image, thumbnail: adjusted.thumbnail ?? adjusted.image, name: current.name),
+            transform: current.transform, mask: current.mask)
         endEdit()
     }
 

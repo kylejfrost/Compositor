@@ -1,0 +1,4 @@
+interface:
+  display_name: "Compositor Setup"
+  short_description: "Connect Claude Code, Codex or Claude Desktop to Compositor's MCP server and fix the connection."
+  default_prompt: "Use this skill to check whether Compositor's MCP server is reachable, turn it on, configure an MCP client for it, and diagnose endpoint, port, bridge or folder-access problems."

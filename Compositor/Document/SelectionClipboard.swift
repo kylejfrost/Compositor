@@ -4,7 +4,7 @@ import AppKit
 struct PixelClipboard {
     let image: CGImage
     let origin: CGPoint
-    /// The system pasteboard's change count right after writing; a mismatch means another app copied since.
+    /// The session's pasteboard's change count right after writing; a mismatch means another app copied since.
     let changeCount: Int
 }
 
@@ -18,6 +18,18 @@ struct CopiedLayer {
 }
 
 extension EditorSession {
+    /// The system pasteboard, except in a test host: there, one private pasteboard for the whole test process
+    /// (released when it exits), so a test run never replaces the clipboard of the person running it, and neither
+    /// what they copy nor another test run's copies reach the tests.
+    static let defaultPasteboard: NSPasteboard = {
+        guard CompositorApplicationDelegate.isHostingTests else { return .general }
+        let pasteboard = NSPasteboard.withUniqueName()
+        testPasteboardName = pasteboard.name
+        atexit { if let name = EditorSession.testPasteboardName { NSPasteboard(name: name).releaseGlobally() } }
+        return pasteboard
+    }()
+    nonisolated(unsafe) private static var testPasteboardName: NSPasteboard.Name?
+
     /// Whole-pixel bounds of what Copy takes: the selection, or the whole canvas without one.
     /// Path boolean operations leave tiny float noise (59.9999999), so round with a tolerance
     /// rather than letting it add a whole pixel.
@@ -103,7 +115,6 @@ extension EditorSession {
     func copySelection() {
         guard canCopyPixels || canCopyLayer, let layer = activeLayer else { return }
         guard canCopyPixels else {
-            let pasteboard = NSPasteboard.general
             pasteboard.clearContents()
             pasteboard.setString(layer.id.uuidString, forType: NSPasteboard.PasteboardType("com.compositor.copied-layer"))
             pixelClipboard = nil
@@ -113,13 +124,12 @@ extension EditorSession {
         do {
             guard let copied = try renderSelectedPixels(from: layer, mask: isMaskSelected) else { NSSound.beep(); return }
             store(copied)
-            if canCopyLayer { copiedLayer = CopiedLayer(ids: copiedLayerIDs(), changeCount: NSPasteboard.general.changeCount) }
+            if canCopyLayer { copiedLayer = CopiedLayer(ids: copiedLayerIDs(), changeCount: pasteboard.changeCount) }
         } catch { brushError = error.localizedDescription }
     }
 
-    /// Keeps pixels for Paste and puts them on the system pasteboard as PNG.
+    /// Keeps pixels for Paste and puts them on the pasteboard as PNG.
     private func store(_ copied: (image: CGImage, region: CGRect)) {
-        let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         if let png = NSBitmapImageRep(cgImage: copied.image).representation(using: .png, properties: [:]) {
             pasteboard.setData(png, forType: .png)
@@ -137,21 +147,21 @@ extension EditorSession {
 
     var canPaste: Bool {
         guard document != nil, canEditLayers else { return false }
-        if let pixelClipboard, NSPasteboard.general.changeCount == pixelClipboard.changeCount { return true }
-        return NSPasteboard.general.canReadObject(forClasses: [NSImage.self], options: nil)
+        if let pixelClipboard, pasteboard.changeCount == pixelClipboard.changeCount { return true }
+        return pasteboard.canReadObject(forClasses: [NSImage.self], options: nil)
     }
 
     /// Cmd-V: pastes as a new layer above the active one. Pixels copied here go back exactly
-    /// where they came from; images copied in other apps are centered.
-    func paste() {
+    /// where they came from; images copied in other apps are centered. `position`, when given,
+    /// places the pasted pixels' top-left corner instead (document pixels).
+    func paste(at position: CGPoint? = nil) {
         guard canPaste, let document else { return }
-        let pasteboard = NSPasteboard.general
         if let clip = pixelClipboard, pasteboard.changeCount == clip.changeCount {
-            addPixelLayer(clip.image, at: clip.origin, name: nextLayerName(), editName: "Paste")
+            addPixelLayer(clip.image, at: position ?? clip.origin, name: nextLayerName(), editName: "Paste")
         } else if let external = NSImage(pasteboard: pasteboard)?.cgImage(forProposedRect: nil, context: nil, hints: nil),
                   let image = try? Self.sRGBCopy(of: external) {
-            let origin = CGPoint(x: floor((document.size.width - CGFloat(image.width)) / 2),
-                                 y: floor((document.size.height - CGFloat(image.height)) / 2))
+            let origin = position ?? CGPoint(x: floor((document.size.width - CGFloat(image.width)) / 2),
+                                             y: floor((document.size.height - CGFloat(image.height)) / 2))
             addPixelLayer(image, at: origin, name: nextLayerName(), editName: "Paste")
         } else { NSSound.beep() }
     }
@@ -215,15 +225,14 @@ extension EditorSession {
               let index = document?.layers.firstIndex(where: { $0.id == layer.id }) else { return nil }
         let included = descendantIDs(of: layer.id).union([layer.id])
         let originals = (document?.layers ?? []).filter { included.contains($0.id) }
-        guard (document?.layers.count ?? 0) + originals.count <= 10_000 else { return nil }
+        guard (document?.layers.count ?? 0) + originals.count <= LayerLimitError.maximum else { return nil }
         let mapping = Dictionary(uniqueKeysWithValues: originals.map { ($0.id, UUID()) })
         let copies = originals.map { original in
-            ImageLayer(id: mapping[original.id]!, asset: original.asset,
-                name: original.name + (original.id == layer.id ? " copy" : ""), isVisible: original.isVisible,
-                transform: original.transform, parentID: original.parentID.map { mapping[$0] ?? $0 },
-                isGroup: original.isGroup, opacity: original.opacity, blendMode: original.blendMode,
-                mask: original.mask, maskSourceID: original.maskSourceID.map { mapping[$0] ?? $0 },
-                adjustment: original.adjustment, shape: original.shape, effects: original.effects, text: original.text)
+            var copy = original.copy(as: mapping[original.id]!)
+            if original.id == layer.id { copy.name += " copy" }
+            copy.parentID = original.parentID.map { mapping[$0] ?? $0 }
+            copy.maskSourceID = original.maskSourceID.map { mapping[$0] ?? $0 }
+            return copy
         }
         document?.layers.insert(contentsOf: copies, at: index + 1)
         for original in originals where collapsedGroupIDs.contains(original.id) {

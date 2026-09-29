@@ -1,0 +1,38 @@
+{
+  "skill_name": "compositor-layout-and-type",
+  "about": "Checks grade_scripted.py runs for skills/compositor-layout-and-type/evals/evals.json. Measurements of what shows (content_bounds, colors, text metrics) are left for the grader agent, which reads them from the transcript.",
+  "evals": {
+    "1": [
+      {"match": "out/spring-workshop-feed.png exists and is 1080 x 1350", "checks": [
+        {"type": "image_size", "path": "out/spring-workshop-feed.png", "width": 1080, "height": 1350}]},
+      {"match": "The photo layer was sized with add_image_layer fit 'cover' or scale_layer_to_fit mode 'cover'", "checks": [
+        {"type": "any", "checks": [
+          {"type": "called", "tool": "add_image_layer", "args": {"fit": "cover"}, "ok": true},
+          {"type": "called", "tool": "scale_layer_to_fit", "args": {"mode": "cover"}, "ok": true}]}]}
+    ],
+    "2": [
+      {"match": "out/quote-story.png exists and is 1080 x 1920", "checks": [
+        {"type": "image_size", "path": "out/quote-story.png", "width": 1080, "height": 1920}]},
+      {"match": "check_fonts or list_fonts before the quote layer is created", "checks": [
+        {"type": "first_before", "first": {"any": ["check_fonts", "list_fonts"]}, "before": {"tool": "add_text_layer"}},
+        {"type": "any", "checks": [
+          {"type": "called", "tool": "add_text_layer", "args": {"style": {"font_name": "Georgia-Italic"}}, "ok": true},
+          {"type": "called", "tool": "set_text_style", "args": {"style": {"font_name": "Georgia-Italic"}}, "ok": true}]}]}
+    ],
+    "3": [
+      {"match": "misaligned-promo-fixed.comp exists and misaligned-promo.comp's manifest.json has the same sha256", "checks": [
+        {"type": "exists", "path": "misaligned-promo-fixed.comp/manifest.json"},
+        {"type": "unchanged", "path": "misaligned-promo.comp/manifest.json"}]},
+      {"match": "The Footer Band layer's transform is identical in both files", "checks": [
+        {"type": "comp_layer", "path": "misaligned-promo-fixed.comp", "layer": "Footer Band",
+         "baseline": "misaligned-promo.comp", "same": ["transform"]}]},
+      {"match": "The transcript uses align_layers and/or distribute_layers", "checks": [
+        {"type": "any", "checks": [
+          {"type": "called", "tool": "align_layers", "ok": true},
+          {"type": "called", "tool": "distribute_layers", "ok": true},
+          {"type": "called", "tool": "set_layer_transform", "ok": true}]},
+        {"type": "last_after", "last": {"any": ["render_document", "render_region", "render_layer"]},
+         "after": {"any": ["align_layers", "distribute_layers", "set_layer_transform", "move_layer"]}}]}
+    ]
+  }
+}

@@ -66,14 +66,14 @@ extension EditorSession {
                 self.document?.layers[index].mask?.placement = placement.mirrored(horizontally: horizontally, across: axis)
             }
         }
-        if let selection = document.selection {
-            var mirror = horizontally
-                ? CGAffineTransform(a: -1, b: 0, c: 0, d: 1, tx: document.size.width, ty: 0)
-                : CGAffineTransform(a: 1, b: 0, c: 0, d: -1, tx: 0, ty: document.size.height)
-            if let path = selection.path.copy(using: &mirror) {
-                self.document?.selection = DocumentSelection(path: path, antialiased: selection.antialiased, feather: selection.feather)
-            }
+        var mirror = horizontally
+            ? CGAffineTransform(a: -1, b: 0, c: 0, d: 1, tx: document.size.width, ty: 0)
+            : CGAffineTransform(a: 1, b: 0, c: 0, d: -1, tx: 0, ty: document.size.height)
+        if let selection = document.selection, let path = selection.path.copy(using: &mirror) {
+            self.document?.selection = DocumentSelection(path: path, antialiased: selection.antialiased, feather: selection.feather)
         }
+        // The Photoshop file's canvas (its saved paths) is mirrored with the pixels.
+        self.document?.psdExtras = document.psdExtras?.placingCanvas(mirror)
         self.document?.guides = document.guides.map { $0.mirrored(horizontally: horizontally, across: axis) }
         endEdit()
     }

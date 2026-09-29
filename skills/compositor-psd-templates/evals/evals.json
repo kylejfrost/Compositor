@@ -1,0 +1,51 @@
+{
+  "skill_name": "compositor-psd-templates",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Fill our endorsement card template (templates/endorsement-card-template.psd in Compositor's Agent folder) for Jordan Rivera, Head of Operations, Acme Hardware, using the photo eval-inputs/endorser-portrait.png. I need a PNG for social in out/ and a layered PSD next to the template for the designer. Don't touch the template itself.",
+      "expected_output": "Opens the template, maps the Photo, Name and Title slots from get_document, sees that the Photo frame is an 820 x 820 position-locked smart object, crops the 1200 x 1500 portrait to the frame's square proportions (sips or a scratch document) and replaces the smart object's contents with it (fit fill), so the frame keeps its place and size and the photo doesn't spill over the accent bar or the name; sets the two texts (point text keeps its center anchor), renders to check, exports a 1080x1350 PNG to out/, saves a new PSD in templates/ (not over the template), and verifies the output with psd-verify; the template's sha256 is unchanged.",
+      "files": [],
+      "fixtures": ["endorsement-card"],
+      "expectations": [
+        "templates/endorsement-card-template.psd has the same sha256 after the run as before it",
+        "A new .psd other than the template exists in templates/, and uv run --with psd-tools python3 scripts/psd-verify.py on it exits 0",
+        "psd-verify --json of the new PSD lists the same number of layers, with the same kinds and depths in the same order, as the template's report",
+        "psd-verify --raw of the new PSD shows the Name type layer's text as 'Jordan Rivera' and the Title type layer's text as 'Head of Operations, Acme Hardware', both still kind type",
+        "The Photo layer is still kind smartobject in the new PSD, and the transcript shows a successful replace_smart_object_contents with fit 'fill' or 'fit' (not 'stretch', which distorts)",
+        "The Photo layer's bbox in the new PSD is the template's frame, (130, 120, 950, 940), and its position lock is still set: the photo fills its frame without spilling past it",
+        "A PNG in out/ is 1080 x 1350 (sips -g pixelWidth -g pixelHeight)",
+        "The Name and Title layers' bbox centers in the new PSD are within 2 px of x = 540",
+        "A render tool is called after the fills and before export_image, and no call passes overwrite: true"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Same card template, but for Maximiliana Oyelaran-Castellanos, Director of Community Partnerships, Acme Hardware (photo: eval-inputs/endorser-portrait.png). Her name has to stay on one line inside the card's 60 px side margins. Export out/card-oyelaran-castellanos.png in the Agent folder only; no PSD needed this time.",
+      "expected_output": "Sets the long name, measures it (get_text_metrics width, or get_layer_bounds content_bounds; not bounds, which add 12 px of padding on each side), shrinks it with fit_text to a max_width of 960 or less (fit_text measures the text itself, without the padding; or an equivalent font_size reduction) rather than wrapping or overflowing, keeps it centered on x 540 (point text keeps its center anchor, so no re-centering is needed), tells the user the size change, exports the PNG, and leaves the template unchanged.",
+      "files": [],
+      "fixtures": ["endorsement-card"],
+      "expectations": [
+        "out/card-oyelaran-castellanos.png exists and is 1080 x 1350",
+        "The transcript shows fit_text on the Name layer with max_width at most 960, or set_text_style lowering its font_size, after measuring the name",
+        "Before export, the Name layer is one line that sits inside the card's 60 px side margins, judged by the text itself, not its box (bounds and box add the text box's 12 px padding on each side, so a 960 px name centered at 540 has bounds 48 to 1032 and still passes). Either get_text_metrics (or the fit_text result's metrics) shows line_count 1 and width times scale.x at most 960, and the Name is centered within 2 px of x 540 by its transform center_x (x + width / 2) or by the center of its content_bounds; or get_layer_bounds shows content_bounds within x 60 to 1020 and the Name is still one line (line_count 1, or point text with no line break)",
+        "The final answer states that the name was shrunk and gives the new (or previous and new) font size",
+        "templates/endorsement-card-template.psd has the same sha256 after the run as before it"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Make the Jordan Rivera card from our endorsement card template (templates/endorsement-card-template.psd in Compositor's Agent folder): name Jordan Rivera, title Head of Operations, Acme Hardware, photo eval-inputs/endorser-portrait.png. The red accent bar sits too close to the photo, so move it down 24 px on this card. Export out/card-jordan-rivera.png and save the layered PSD beside the template as well.",
+      "expected_output": "Finds that Accent Bar is under Lock All (move_layer refused with guard layer_locked, or effective_locks read up front), unlocks only that layer, moves it 24 px down, restores Lock All (in one run_batch or consecutive calls), tells the user it was locked, exports the PNG and saves a new PSD in which the bar is still locked.",
+      "files": [],
+      "fixtures": ["endorsement-card"],
+      "expectations": [
+        "In the new PSD's psd-verify --json report, the Accent Bar layer's bbox top is 24 px lower than in the template's report",
+        "The Accent Bar layer's locks in the new PSD report complete (Lock All) set, as in the template",
+        "The Photo layer's position lock is still set in the new PSD",
+        "The final answer mentions that the accent bar was locked and that the lock was restored",
+        "templates/endorsement-card-template.psd has the same sha256 after the run as before it, and out/card-jordan-rivera.png is 1080 x 1350"
+      ]
+    }
+  ]
+}

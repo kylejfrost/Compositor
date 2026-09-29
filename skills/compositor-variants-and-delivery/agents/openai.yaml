@@ -1,0 +1,4 @@
+interface:
+  display_name: "Compositor Variants and Delivery"
+  short_description: "Make size, copy and per-person variants from a Compositor master, export them right, name them, verify the set."
+  default_prompt: "Use this skill to turn an approved Compositor master into a delivery: plan the variants, derive each with duplicate_document and re-layout inside safe zones, export PNG or JPEG with the right settings and names, save layered files, verify every output and show a contact sheet."

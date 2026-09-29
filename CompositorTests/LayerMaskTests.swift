@@ -279,6 +279,141 @@ struct LayerMaskTests {
         }
         window.orderOut(nil)
     }
+    /// A 20 × 20 mask of `edge` gray with an 8 × 8 center of `center` gray.
+    private func framedMask(edge: CGFloat, center: CGFloat) throws -> ImportedImage {
+        let context = try BrushRaster.context(width: 20, height: 20, mask: true)
+        context.setFillColor(gray: edge, alpha: 1)
+        context.fill(CGRect(x: 0, y: 0, width: 20, height: 20))
+        context.setFillColor(gray: center, alpha: 1)
+        context.fill(CGRect(x: 6, y: 6, width: 8, height: 8))
+        return try LayerMask.asset(from: try #require(context.makeImage()))
+    }
+    /// One pixel's premultiplied red, green, blue and alpha (0–255).
+    private func rgba(_ image: CGImage, x: Int, y: Int) throws -> [Int] {
+        let context = try #require(CGContext(data: nil, width: image.width, height: image.height, bitsPerComponent: 8,
+            bytesPerRow: image.width * 4, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue))
+        context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        let bytes = try #require(context.data).assumingMemoryBound(to: UInt8.self)
+        let index = (y * image.width + x) * 4
+        return (0..<4).map { Int(bytes[index + $0]) }
+    }
+    /// Folders and adjustment layers have no pixels of their own, so their masks cover the canvas; placed apart
+    /// (moved on their own, or imported reaching past the canvas), they clip where they sit, as a pixel layer's mask
+    /// does — in export, in the live composite and on the canvas, and while a stroke paints one.
+    @Test func placedFolderAndAdjustmentMasksClipWhereTheySit() async throws {
+        let size = CGSize(width: 80, height: 40)
+        let session = EditorSession()
+        session.createDocument(width: 80, height: 40)
+        let space = CGColorSpace(name: CGColorSpace.sRGB)!
+        let context = try #require(CGContext(data: nil, width: 80, height: 40, bitsPerComponent: 8,
+            bytesPerRow: 320, space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.setFillColor(CGColor(colorSpace: space, components: [1, 0, 0, 1])!)
+        context.fill(CGRect(origin: .zero, size: size))
+        let image = try #require(context.makeImage())
+        session.insert(ImportedImage(image: image, thumbnail: image, name: "Red"))
+        let red = try #require(session.activeLayerID)
+        session.addAdjustment(.levels)
+        session.adjustmentEditingID = nil
+        let adjustment = try #require(session.activeLayerID)
+        var settings = LayerAdjustment(kind: .levels)
+        settings.levels.ranges[0].outputWhite = 0
+        session.updateAdjustment(adjustment, value: settings)
+        // Red in a folder, the adjustment above the folder.
+        session.selectLayer(red)
+        session.groupSelectedLayers()
+        let folder = try #require(session.activeLayerID)
+        // The folder hides an 8 × 8 square at (46, 16) and nothing else (its edge is white); the adjustment turns
+        // only the square at (6, 16) black (its edge is black). Stretched over the canvas instead, both squares
+        // would cover (24…56, 12…28).
+        let folderIndex = try #require(session.document?.layers.firstIndex { $0.id == folder })
+        let adjustmentIndex = try #require(session.document?.layers.firstIndex { $0.id == adjustment })
+        session.document?.layers[folderIndex].mask = LayerMask(asset: try framedMask(edge: 1, center: 0),
+            placement: LayerTransform(origin: CGPoint(x: 40, y: 10), size: CGSize(width: 20, height: 20)))
+        session.document?.layers[adjustmentIndex].mask = LayerMask(asset: try framedMask(edge: 0, center: 1),
+            placement: LayerTransform(origin: CGPoint(x: 0, y: 10), size: CGSize(width: 20, height: 20)))
+        #expect(session.document?.layers[adjustmentIndex].parentID == nil)
+
+        enum Look: Equatable { case red, black, hidden, other(String) }
+        func look(_ pixel: [Int]) -> Look {
+            if pixel[3] < 10 { return .hidden }
+            if pixel[3] > 245, pixel[0] > 200, pixel[1] < 80 { return .red }
+            if pixel[3] > 245, pixel[0] < 20, pixel[1] < 20 { return .black }
+            return .other("\(pixel)")
+        }
+        let points = [(10, 20), (30, 20), (36, 20), (50, 20), (70, 20)]
+        let expected: [Look] = [.black, .red, .red, .hidden, .red]
+        let exported = try await ImageExporter.shared.render(try #require(session.projectSnapshot())).image
+        let exportedLooks = try points.map { look(try rgba(exported, x: $0.0, y: $0.1)) }
+        #expect(exportedLooks == expected, "export: \(exportedLooks)")
+        let composite = try BrushRaster.context(width: 80, height: 40, mask: false)
+        session.drawLiveComposite(try #require(session.document), in: composite)
+        let compositeImage = try #require(composite.makeImage())
+        let liveLooks = try points.map { look(try rgba(compositeImage, x: $0.0, y: $0.1)) }
+        #expect(liveLooks == expected, "live composite: \(liveLooks)")
+
+        let view = CanvasView(session: session)
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 400, height: 200), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = view
+        defer { window.orderOut(nil) }
+        session.viewport.resize(to: view.bounds.size, backingScale: 1, documentSize: size)
+        func canvas(at point: (Int, Int)) throws -> Look {
+            guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return .other("no bitmap") }
+            view.cacheDisplay(in: view.bounds, to: rep)
+            let scale = CGFloat(rep.pixelsWide) / view.bounds.width
+            let spot = session.viewport.viewPoint(from: CGPoint(x: CGFloat(point.0) + 0.5, y: CGFloat(point.1) + 0.5), documentSize: size)
+            let pixel = try #require(rep.colorAt(x: Int(spot.x * scale), y: Int(spot.y * scale))?.usingColorSpace(.sRGB))
+            // The canvas is opaque: what's hidden shows its neutral checkerboard.
+            if abs(pixel.redComponent - pixel.greenComponent) < 0.1, pixel.redComponent > 0.3 { return .hidden }
+            if pixel.redComponent - pixel.greenComponent > 0.5 { return .red }
+            if pixel.redComponent < 0.2, pixel.greenComponent < 0.2 { return .black }
+            return .other("\([pixel.redComponent, pixel.greenComponent, pixel.blueComponent])")
+        }
+        for zoom in [1.0, 3.0] {
+            session.viewport.setZoom(zoom, anchoredAt: session.viewport.center, documentSize: size)
+            let canvasLooks = try points.map { try canvas(at: $0) }
+            #expect(canvasLooks == expected, "zoom \(zoom): \(canvasLooks)")
+        }
+
+        // Painting the folder's mask on its own placement: the rest of the canvas keeps showing what the mask shows
+        // there, during the stroke and after it, and the paint lands where it was put.
+        session.viewport.setZoom(1, anchoredAt: session.viewport.center, documentSize: size)
+        session.selectLayerTarget(folder, mask: true)
+        session.selectTool(.brush)
+        session.brushSettings = BrushSettings(diameter: 6, hardness: 1, red: 0, green: 0, blue: 0)
+        session.maskPaintWhite = false
+        session.beginBrush(at: CGPoint(x: 43.5, y: 20.5))
+        session.continueBrush(at: CGPoint(x: 43.6, y: 20.5))
+        #expect(session.brushStroke != nil)
+        let strokeLooks = try [(43, 20), (30, 20), (70, 20)].map { try canvas(at: $0) }
+        #expect(strokeLooks == [.hidden, .red, .red], "during the stroke: \(strokeLooks)")
+        await session.finishBrush()
+        let painted = try await ImageExporter.shared.render(try #require(session.projectSnapshot())).image
+        let paintedLooks = try [(43, 20), (30, 20), (70, 20)].map { look(try rgba(painted, x: $0.0, y: $0.1)) }
+        #expect(paintedLooks == [.hidden, .red, .red], "export after the stroke: \(paintedLooks)")
+        // Another tool, so no brush cursor is drawn over the canvas.
+        session.selectTool(.marquee)
+        let committedLooks = try [(43, 20), (30, 20), (70, 20)].map { try canvas(at: $0) }
+        #expect(committedLooks == [.hidden, .red, .red], "canvas after the stroke: \(committedLooks)")
+    }
+    /// Every redraw asks for each placed mask in turn, so a document with more of them than a handful must still
+    /// find each one cached rather than rebuild them all, every redraw.
+    @Test func manyPlacedMasksStayCachedAcrossRedraws() throws {
+        let cache = MaskPlacementCache()
+        let layer = LayerTransform(origin: .zero, size: CGSize(width: 64, height: 64))
+        let masks = try (0..<12).map { _ in try framedMask(edge: 1, center: 0).image }
+        var builds = 0
+        for _ in 0..<3 {
+            for (index, mask) in masks.enumerated() {
+                let placement = LayerTransform(origin: CGPoint(x: index, y: 0), size: CGSize(width: 10, height: 10))
+                _ = cache.image(mask: mask, placement: placement, layer: layer, width: 64, height: 64) {
+                    builds += 1
+                    return mask
+                }
+            }
+        }
+        #expect(builds == masks.count)
+    }
     @Test func folderMasksSaveResizeAndNeedTheNewFormat() async throws {
         let (session, folder, _) = try folderSession()
         let folderIndex = try #require(session.document?.layers.firstIndex { $0.id == folder })

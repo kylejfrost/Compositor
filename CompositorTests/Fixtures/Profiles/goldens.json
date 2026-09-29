@@ -1,0 +1,152 @@
+[
+ {
+  "golden": "golden-identity-srgb-100.png",
+  "profile": "profile-identity-srgb.xmp",
+  "percent": 100,
+  "fixedLook": "full"
+ },
+ {
+  "golden": "golden-warm-adobe-0.png",
+  "profile": "profile-warm-adobe.xmp",
+  "percent": 0,
+  "fixedLook": "full"
+ },
+ {
+  "golden": "golden-warm-adobe-50.png",
+  "profile": "profile-warm-adobe.xmp",
+  "percent": 50,
+  "fixedLook": "full"
+ },
+ {
+  "golden": "golden-warm-adobe-100.png",
+  "profile": "profile-warm-adobe.xmp",
+  "percent": 100,
+  "fixedLook": "full"
+ },
+ {
+  "golden": "golden-warm-adobe-150.png",
+  "profile": "profile-warm-adobe.xmp",
+  "percent": 150,
+  "fixedLook": "full"
+ },
+ {
+  "golden": "golden-warm-adobe-200.png",
+  "profile": "profile-warm-adobe.xmp",
+  "percent": 200,
+  "fixedLook": "full"
+ },
+ {
+  "golden": "golden-film-prophoto-100.png",
+  "profile": "profile-film-prophoto.xmp",
+  "percent": 100,
+  "fixedLook": "full"
+ },
+ {
+  "golden": "golden-film-prophoto-150.png",
+  "profile": "profile-film-prophoto.xmp",
+  "percent": 150,
+  "fixedLook": "full"
+ },
+ {
+  "golden": "golden-rec2020-extend-100.png",
+  "profile": "profile-rec2020-extend.xmp",
+  "percent": 100,
+  "fixedLook": "full"
+ },
+ {
+  "golden": "golden-p3-linear-1d-50.png",
+  "profile": "profile-p3-linear-1d.xmp",
+  "percent": 50,
+  "fixedLook": "full"
+ },
+ {
+  "golden": "golden-p3-linear-1d-100.png",
+  "profile": "profile-p3-linear-1d.xmp",
+  "percent": 100,
+  "fixedLook": "full"
+ },
+ {
+  "golden": "golden-hsm-linear-0.png",
+  "profile": "profile-hsm-linear.xmp",
+  "percent": 0,
+  "fixedLook": "full"
+ },
+ {
+  "golden": "golden-hsm-linear-50.png",
+  "profile": "profile-hsm-linear.xmp",
+  "percent": 50,
+  "fixedLook": "full"
+ },
+ {
+  "golden": "golden-hsm-linear-100.png",
+  "profile": "profile-hsm-linear.xmp",
+  "percent": 100,
+  "fixedLook": "full"
+ },
+ {
+  "golden": "golden-hsm-linear-200.png",
+  "profile": "profile-hsm-linear.xmp",
+  "percent": 200,
+  "fixedLook": "full"
+ },
+ {
+  "golden": "golden-hsm-srgb-fixed-0.png",
+  "profile": "profile-hsm-srgb-fixed.xmp",
+  "percent": 0,
+  "fixedLook": "full"
+ },
+ {
+  "golden": "golden-hsm-srgb-fixed-0-scaled.png",
+  "profile": "profile-hsm-srgb-fixed.xmp",
+  "percent": 0,
+  "fixedLook": "scaled"
+ },
+ {
+  "golden": "golden-hsm-srgb-fixed-0-skipped.png",
+  "profile": "profile-hsm-srgb-fixed.xmp",
+  "percent": 0,
+  "fixedLook": "skipped"
+ },
+ {
+  "golden": "golden-hsm-srgb-fixed-50-scaled.png",
+  "profile": "profile-hsm-srgb-fixed.xmp",
+  "percent": 50,
+  "fixedLook": "scaled"
+ },
+ {
+  "golden": "golden-hsm-srgb-fixed-100.png",
+  "profile": "profile-hsm-srgb-fixed.xmp",
+  "percent": 100,
+  "fixedLook": "full"
+ },
+ {
+  "golden": "golden-hsm-flat-100.png",
+  "profile": "profile-hsm-flat.xmp",
+  "percent": 100,
+  "fixedLook": "full"
+ },
+ {
+  "golden": "golden-bw-curve-50.png",
+  "profile": "profile-bw-curve.xmp",
+  "percent": 50,
+  "fixedLook": "full"
+ },
+ {
+  "golden": "golden-bw-curve-100.png",
+  "profile": "profile-bw-curve.xmp",
+  "percent": 100,
+  "fixedLook": "full"
+ },
+ {
+  "golden": "golden-settings-approx-100.png",
+  "profile": "profile-settings-approx.xmp",
+  "percent": 100,
+  "fixedLook": "full"
+ },
+ {
+  "golden": "golden-no-amount-200.png",
+  "profile": "profile-no-amount.xmp",
+  "percent": 200,
+  "fixedLook": "full"
+ }
+]

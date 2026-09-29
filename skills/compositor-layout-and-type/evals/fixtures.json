@@ -1,0 +1,25 @@
+{
+  "skill_name": "compositor-layout-and-type",
+  "about": "Recipes scripts/skills-eval/replay_fixtures.py replays against the eval instance before the evals run: it writes each image at its path in the instance's Agent folder, runs each fixture's calls in order (each must succeed), and records the sha256 of every file left behind.",
+  "images": [
+    {"path": "eval-inputs/workshop-photo.png", "width": 1600, "height": 1200, "kind": "linear_gradient", "from": "#6b8f71", "to": "#d9c5a0", "angle": 30},
+    {"path": "eval-inputs/feature-icon.png", "width": 120, "height": 120, "kind": "radial_gradient", "from": "#ffffff", "to": "#118ab2"}
+  ],
+  "fixtures": [
+    {
+      "id": "misaligned-promo",
+      "description": "misaligned-promo.comp: a 1080x1080 layout whose Headline sits 40 px left of center and whose three icons are unevenly spaced (centers at x 200, 470, 860) and not on one line (y 700, 712, 700), over a Footer Band shape. The document is closed afterwards.",
+      "outputs": ["misaligned-promo.comp"],
+      "calls": [
+        {"tool": "new_document", "arguments": {"width": 1080, "height": 1080, "name": "misaligned-promo", "fill": "#fdf6e3"}},
+        {"tool": "add_shape", "arguments": {"kind": "rectangle", "rect": {"x": 0, "y": 960, "width": 1080, "height": 120}, "color": "#073642", "name": "Footer Band"}},
+        {"tool": "add_text_layer", "arguments": {"text": "Three reasons to visit", "x": 500, "y": 220, "anchor": "top", "name": "Headline", "style": {"font_name": "Helvetica-Bold", "font_size": 72, "color": "#073642", "alignment": "center"}}},
+        {"tool": "add_image_layer", "arguments": {"path": "eval-inputs/feature-icon.png", "name": "Icon 1", "center": {"x": 200, "y": 700}}},
+        {"tool": "add_image_layer", "arguments": {"path": "eval-inputs/feature-icon.png", "name": "Icon 2", "center": {"x": 470, "y": 712}}},
+        {"tool": "add_image_layer", "arguments": {"path": "eval-inputs/feature-icon.png", "name": "Icon 3", "center": {"x": 860, "y": 700}}},
+        {"tool": "save_document_as", "arguments": {"path": "misaligned-promo.comp"}},
+        {"tool": "close_document", "arguments": {}}
+      ]
+    }
+  ]
+}

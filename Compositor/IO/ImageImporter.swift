@@ -29,12 +29,28 @@ actor ImageImporter {
     private lazy var context = CIContext(options: [.cacheIntermediates: false])
     private let sRGB = CGColorSpace(name: CGColorSpace.sRGB)!
 
-    /// An SVG drawn once into pixels, by macOS's own SVG renderer: fitted to `fitting` (the canvas) when there is one,
-    /// otherwise at the size the file declares. It comes in as an ordinary image layer, so it doesn't stay vector.
-    func decodeSVG(_ url: URL, fitting: CGSize?, remainingPixels: Int = DocumentLimits.documentPixelBudget) throws -> ImportedImage {
+    /// Whether `url` names an SVG file, by its extension (ImageIO doesn't read SVG, so `decode` can't tell).
+    nonisolated static func isSVG(_ url: URL) -> Bool {
+        UTType(filenameExtension: url.pathExtension)?.conforms(to: .svg) == true
+    }
+
+    /// An SVG drawn once into pixels, by macOS's own SVG renderer: fitted inside `fitting` (the canvas) when there is
+    /// one, or with `cover` filling it (so a layer fitted to cover is drawn at that size, not scaled up from a smaller
+    /// drawing), otherwise at the size the file declares. It comes in as an ordinary image layer, so it doesn't stay
+    /// vector.
+    func decodeSVG(_ url: URL, fitting: CGSize?, cover: Bool = false,
+                   remainingPixels: Int = DocumentLimits.documentPixelBudget) throws -> ImportedImage {
         guard let svg = NSImage(contentsOf: url), svg.size.width > 0, svg.size.height > 0 else { throw ImageImportError.unreadable }
-        let scale = fitting.map { min($0.width / svg.size.width, $0.height / svg.size.height) } ?? 1
-        let width = max(1, Int((svg.size.width * scale).rounded())), height = max(1, Int((svg.size.height * scale).rounded()))
+        let ratios = fitting.map { ($0.width / svg.size.width, $0.height / svg.size.height) }
+        var scale = ratios.map { cover ? max($0.0, $0.1) : min($0.0, $0.1) } ?? 1
+        var width = max(1, Int((svg.size.width * scale).rounded())), height = max(1, Int((svg.size.height * scale).rounded()))
+        if cover, width > DocumentLimits.maxSide || height > DocumentLimits.maxSide || width * height > remainingPixels {
+            // Filling the canvas can take a very wide or tall drawing past what a layer may hold. It is drawn as large
+            // as one may be instead (rounded down, so it stays within), and the layer's transform scales up the rest.
+            let side = CGFloat(DocumentLimits.maxSide) / max(svg.size.width, svg.size.height)
+            scale = min(scale, side, (CGFloat(remainingPixels) / (svg.size.width * svg.size.height)).squareRoot())
+            width = max(1, Int(svg.size.width * scale)); height = max(1, Int(svg.size.height * scale))
+        }
         guard width <= DocumentLimits.maxSide, height <= DocumentLimits.maxSide, width * height <= remainingPixels else {
             throw ImageImportError.tooLarge
         }
@@ -84,8 +100,9 @@ actor ImageImporter {
         }
     }
 
-    func loadPhotoshop(_ url: URL, remainingPixels: Int = DocumentLimits.documentPixelBudget) throws -> PSDDocument {
-        try PSDReader.read(from: url, remainingPixels: remainingPixels)
+    func loadPhotoshop(_ url: URL, remainingPixels: Int = DocumentLimits.documentPixelBudget,
+                       remainingMaskPixels: Int = LayerMask.maximumProjectPixels) throws -> PSDDocument {
+        try PSDReader.read(from: url, remainingPixels: remainingPixels, remainingMaskPixels: remainingMaskPixels)
     }
 
     func photoshopAssets(_ document: PSDDocument) throws -> [UUID: ImportedImage] {

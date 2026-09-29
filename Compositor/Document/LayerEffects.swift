@@ -23,6 +23,8 @@ nonisolated struct StrokeEffect: Codable, Equatable, Sendable {
 
 /// The layer's shape repeated behind it, offset and softened.
 nonisolated struct ShadowEffect: Codable, Equatable, Sendable {
+    static let maxDistance: CGFloat = 5000
+    static let maxBlur: CGFloat = 500
     var enabled: Bool? = nil
     var isEnabled: Bool { enabled ?? true }
     /// Where the light comes from, in degrees counterclockwise from the right, as Photoshop's dial is: 90 is from
@@ -34,6 +36,11 @@ nonisolated struct ShadowEffect: Codable, Equatable, Sendable {
     var green: CGFloat = 0
     var blue: CGFloat = 0
     var opacity: Double = 0.5
+    /// Photoshop's "Layer Knocks Out Drop Shadow" (the effect's `layerConceals`): the layer's own shape hides the
+    /// shadow under it, so a layer at a low Fill, or with see-through pixels, doesn't show its shadow through itself.
+    /// Missing means on, Photoshop's default; only a Photoshop file turns it off.
+    var knocksOut: Bool? = nil
+    var isKnockedOut: Bool { knocksOut ?? true }
     var color: PaletteColor { PaletteColor(red: red, green: green, blue: blue) }
     /// Where the shadow sits, in layer pixels (y grows downward, as the layer's own pixels do).
     var offset: CGSize {
@@ -43,7 +50,7 @@ nonisolated struct ShadowEffect: Codable, Equatable, Sendable {
     }
     var isValid: Bool {
         [angle, distance, blur].allSatisfy(\.isFinite) && (-360...360).contains(angle)
-            && (0...5000).contains(distance) && (0...500).contains(blur)
+            && (0...ShadowEffect.maxDistance).contains(distance) && (0...ShadowEffect.maxBlur).contains(blur)
             && opacity.isFinite && (0...1).contains(opacity)
             && [red, green, blue].allSatisfy { $0.isFinite && (0...1).contains($0) }
     }
@@ -65,6 +72,8 @@ nonisolated struct ColorOverlayEffect: Codable, Equatable, Sendable {
 
 /// A shadow cast inside the layer's own edges, as though it were cut out of what is behind it.
 nonisolated struct InnerShadowEffect: Codable, Equatable, Sendable {
+    static let maxDistance: CGFloat = 5000
+    static let maxBlur: CGFloat = 500
     var enabled: Bool? = nil
     var isEnabled: Bool { enabled ?? true }
     var angle: CGFloat = 90
@@ -82,7 +91,7 @@ nonisolated struct InnerShadowEffect: Codable, Equatable, Sendable {
     }
     var isValid: Bool {
         [angle, distance, blur].allSatisfy(\.isFinite) && (-360...360).contains(angle)
-            && (0...5000).contains(distance) && (0...500).contains(blur)
+            && (0...InnerShadowEffect.maxDistance).contains(distance) && (0...InnerShadowEffect.maxBlur).contains(blur)
             && opacity.isFinite && (0...1).contains(opacity)
             && [red, green, blue].allSatisfy { $0.isFinite && (0...1).contains($0) }
     }
@@ -90,6 +99,7 @@ nonisolated struct InnerShadowEffect: Codable, Equatable, Sendable {
 
 /// A soft glow drawn omnidirectionally around the outside of what the layer shows.
 nonisolated struct OuterGlowEffect: Codable, Equatable, Sendable {
+    static let maxSize: CGFloat = 500
     var enabled: Bool? = nil
     var isEnabled: Bool { enabled ?? true }
     var size: CGFloat = 20
@@ -99,7 +109,7 @@ nonisolated struct OuterGlowEffect: Codable, Equatable, Sendable {
     var opacity: Double = 0.75
     var color: PaletteColor { PaletteColor(red: red, green: green, blue: blue) }
     var isValid: Bool {
-        size.isFinite && (0...500).contains(size)
+        size.isFinite && (0...OuterGlowEffect.maxSize).contains(size)
             && opacity.isFinite && (0...1).contains(opacity)
             && [red, green, blue].allSatisfy { $0.isFinite && (0...1).contains($0) }
     }
@@ -107,6 +117,7 @@ nonisolated struct OuterGlowEffect: Codable, Equatable, Sendable {
 
 /// A glow cast inside the layer's own edges, emanating inward from its boundary.
 nonisolated struct InnerGlowEffect: Codable, Equatable, Sendable {
+    static let maxSize: CGFloat = 500
     var enabled: Bool? = nil
     var isEnabled: Bool { enabled ?? true }
     var size: CGFloat = 10
@@ -116,7 +127,7 @@ nonisolated struct InnerGlowEffect: Codable, Equatable, Sendable {
     var opacity: Double = 0.75
     var color: PaletteColor { PaletteColor(red: red, green: green, blue: blue) }
     var isValid: Bool {
-        size.isFinite && (0...500).contains(size)
+        size.isFinite && (0...InnerGlowEffect.maxSize).contains(size)
             && opacity.isFinite && (0...1).contains(opacity)
             && [red, green, blue].allSatisfy { $0.isFinite && (0...1).contains($0) }
     }
@@ -219,7 +230,10 @@ struct LayerEffectSelection: Equatable {
 }
 
 extension EditorSession {
-    var canEditEffects: Bool { canEditLayers && activeLayer?.isGroup == false && activeLayer?.asset != nil }
+    /// Lock All (the layer's own or a folder's) holds a layer's effects; a pixel lock doesn't, as in Photoshop.
+    var canEditEffects: Bool {
+        canEditLayers && activeLayer?.isGroup == false && activeLayer?.asset != nil && activeLayerID.map(isHeldByLockAll) == false
+    }
     var activeEffects: LayerEffects { activeLayer?.effects ?? LayerEffects() }
     var editingEffects: LayerEffects {
         document?.layers.first(where: { $0.id == effectsEditing?.layerID })?.effects ?? LayerEffects()
@@ -235,7 +249,14 @@ extension EditorSession {
         if effectsEditing == LayerEffectSelection(layerID: id, kind: kind) { return }
         finishEffectsEditing(commit: false)
         let original = activeEffects
-        var effects = original
+        setEffects(addingNewEffect(kind, to: original), on: id, name: "Add " + kind.rawValue)
+        selectEffect(kind, on: id, editing: true)
+        effectsEditingOriginal = original
+    }
+
+    /// `effects` with a `kind` effect at the settings a new one starts with, or unchanged when it already has one.
+    func addingNewEffect(_ kind: LayerEffectKind, to effects: LayerEffects) -> LayerEffects {
+        var effects = effects
         // A new stroke or overlay takes the background color: the foreground is usually what the layer is painted in.
         switch kind {
         case .stroke where effects.stroke == nil:
@@ -256,9 +277,7 @@ extension EditorSession {
             effects.innerGlow = InnerGlowEffect()
         default: break
         }
-        setEffects(effects, on: id, name: "Add " + kind.rawValue)
-        selectEffect(kind, on: id, editing: true)
-        effectsEditingOriginal = original
+        return effects
     }
 
     func selectEffect(_ kind: LayerEffectKind, on id: UUID, editing: Bool = false) {
@@ -298,11 +317,13 @@ extension EditorSession {
         if selectedEffect == nil { effectSelection = nil }
     }
 
+    /// Sets a layer's effects as one undo step named `name`. Lock All (its own or a folder's) holds them.
     func setEffects(_ effects: LayerEffects, on id: UUID? = nil, name: String = "Layer Effects") {
         guard canEditLayers, effects.isValid,
               let index = document?.layers.firstIndex(where: { $0.id == (id ?? activeLayerID) }),
               document?.layers[index].isGroup == false, document?.layers[index].asset != nil,
-              document?.layers[index].effects != (effects.isEmpty ? nil : effects) else { return }
+              document?.layers[index].effects != (effects.isEmpty ? nil : effects),
+              let target = document?.layers[index].id, !isHeldByLockAll(target) else { return }
         finishOpacityEdit()
         beginEdit(name)
         document?.layers[index].effects = effects.isEmpty ? nil : effects
@@ -324,7 +345,7 @@ extension EditorSession {
               document?.layers.first(where: { $0.id == source })?.effects?.contains(kind) == true,
               let layer = document?.layers.first(where: { $0.id == target }),
               !layer.isGroup, layer.asset != nil else { return false }
-        return true
+        return !isHeldByLockAll(target)
     }
 
     func copyEffect(_ kind: LayerEffectKind, from source: UUID, to target: UUID) {
@@ -370,16 +391,20 @@ extension EditorSession {
 
 /// Draws a layer's effects around its pixels. The result is the layer as it should appear — shadow behind, stroke
 /// around, pixels on top — on a canvas grown by `inset` pixels on every side, so the caller places it by growing
-/// the layer's transform in the same proportion.
+/// the layer's transform in the same proportion. The pixels are drawn at the layer's Fill and the effects at full
+/// strength, as Photoshop draws them (its Fill fades a layer's own pixels, never its effects); the effects follow
+/// the pixels' shape whatever the Fill, so a stroke still outlines type at Fill 0. The drop shadow is knocked out
+/// under that shape (Photoshop's default "Layer Knocks Out Drop Shadow"), so type at Fill 0 shows its shadow only
+/// outside the letters.
 nonisolated enum LayerEffectsRenderer {
     /// The last few layers drawn with effects, so the canvas doesn't rebuild them on every redraw.
     private final class Cache: @unchecked Sendable {
         private let lock = NSLock()
-        private var entries: [(image: CGImage, mask: CGImage?, effects: LayerEffects, result: CGImage, inset: CGFloat)] = []
-        func result(image: CGImage, mask: CGImage?, effects: LayerEffects,
+        private var entries: [(image: CGImage, mask: CGImage?, effects: LayerEffects, fill: Double, result: CGImage, inset: CGFloat)] = []
+        func result(image: CGImage, mask: CGImage?, effects: LayerEffects, fill: Double,
                     make: () throws -> (image: CGImage, inset: CGFloat)) throws -> (image: CGImage, inset: CGFloat) {
             lock.lock()
-            let hit = entries.first { $0.image === image && $0.mask === mask && $0.effects == effects }
+            let hit = entries.first { $0.image === image && $0.mask === mask && $0.effects == effects && $0.fill == fill }
             lock.unlock()
             if let hit { return (hit.result, hit.inset) }
             let made = try make()
@@ -387,7 +412,7 @@ nonisolated enum LayerEffectsRenderer {
             let budget = 64 * 1024 * 1024
             let cost = made.image.bytesPerRow * made.image.height + image.bytesPerRow * image.height + (mask.map { $0.bytesPerRow * $0.height } ?? 0)
             if cost <= budget {
-                entries.append((image, mask, effects, made.image, made.inset))
+                entries.append((image, mask, effects, fill, made.image, made.inset))
                 while entries.count > 8 || entries.reduce(0, { $0 + $1.result.bytesPerRow * $1.result.height + $1.image.bytesPerRow * $1.image.height + ($1.mask.map { $0.bytesPerRow * $0.height } ?? 0) }) > budget {
                     entries.removeFirst()
                 }
@@ -398,12 +423,14 @@ nonisolated enum LayerEffectsRenderer {
     }
     private static let cache = Cache()
 
-    /// `image` with `effects` around it, reusing the last result for the same pixels, mask and settings. Nil when
-    /// there is nothing to draw or the effects can't be made, so the caller draws the layer as it is.
-    static func cached(_ image: CGImage, mask: CGImage?, effects: LayerEffects?) -> (image: CGImage, inset: CGFloat)? {
+    /// `image` with `effects` around it, its pixels at `fill`, reusing the last result for the same pixels, mask and
+    /// settings. Nil when there is nothing to draw or the effects can't be made, so the caller draws the layer as it
+    /// is (at its pixel opacity).
+    static func cached(_ image: CGImage, mask: CGImage?, effects: LayerEffects?, fill: Double = 1) -> (image: CGImage, inset: CGFloat)? {
         guard let effects = effects?.visible, !effects.isEmpty, effects.isValid else { return nil }
-        return try? cache.result(image: image, mask: mask, effects: effects) {
-            try render(image, mask: mask, effects: effects)
+        let fill = LayerOpacity.fill(fill)
+        return try? cache.result(image: image, mask: mask, effects: effects, fill: fill) {
+            try render(image, mask: mask, effects: effects, fill: fill)
         }
     }
 
@@ -431,10 +458,13 @@ nonisolated enum LayerEffectsRenderer {
         return ceil(margin) + 2
     }
 
-    /// `image` with `effects` around it. `mask` (the layer's own mask, in its pixel grid) hides part of the layer
-    /// before the effects are made, so they follow the shape that is actually shown, as in Photoshop.
-    static func render(_ image: CGImage, mask: CGImage?, effects: LayerEffects) throws -> (image: CGImage, inset: CGFloat) {
+    /// `image` with `effects` around it and its own pixels at `fill` (Photoshop's Fill). `mask` (the layer's own mask,
+    /// in its pixel grid) hides part of the layer before the effects are made, so they follow the shape that is
+    /// actually shown, as in Photoshop. `usingGPU` false draws on the CPU, as when Metal isn't available.
+    static func render(_ image: CGImage, mask: CGImage?, effects: LayerEffects, fill pixelFill: Double = 1,
+                       usingGPU: Bool = true) throws -> (image: CGImage, inset: CGFloat) {
         let effects = effects.visible
+        let pixelFill = LayerOpacity.fill(pixelFill)
         guard effects.isValid else { throw ProjectError.invalid }
         let inset = margin(for: effects)
         let width = image.width + Int(inset) * 2, height = image.height + Int(inset) * 2
@@ -443,11 +473,11 @@ nonisolated enum LayerEffectsRenderer {
         let full = CGRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height))
         // The layer as it is shown: its pixels through its mask.
         let shown = try masked(image, mask: mask)
-        if let metal = MetalLayerEffects.shared {
+        if usingGPU, let metal = MetalLayerEffects.shared {
             // The pixels with room around them, then the stroke and shadow drawn on the GPU.
             let padded = try BrushRaster.context(width: width, height: height, mask: false)
             BrushRaster.draw(shown, in: placed, mask: false, context: padded)
-            if let room = padded.makeImage(), let built = try? metal.render(room, effects: effects) {
+            if let room = padded.makeImage(), let built = try? metal.render(room, effects: effects, fill: pixelFill) {
                 return (built, inset)
             }
         }
@@ -456,6 +486,8 @@ nonisolated enum LayerEffectsRenderer {
             let alpha = try coverage(shown, in: placed.offsetBy(dx: shadow.offset.width, dy: shadow.offset.height),
                                      size: CGSize(width: width, height: height), blur: shadow.blur)
             fill(shadow.color, alpha: shadow.opacity, coverage: alpha, in: full, context: context)
+            // Only the shadow is drawn yet, so this hides it alone.
+            if shadow.isKnockedOut { knockOut(shown, in: placed, context: context) }
         }
         if let glow = effects.outerGlow, glow.opacity > 0 {
             let alpha = try outerGlowCoverage(shown, placed: placed, size: CGSize(width: width, height: height), glow: glow)
@@ -469,14 +501,7 @@ nonisolated enum LayerEffectsRenderer {
             fill(stroke.color, alpha: stroke.opacity, coverage: alpha, in: full, context: context)
         }
         if let stroke, !stroke.inside { try drawStroke(stroke) }
-        // Source-over preserves effects beneath transparent pixels. BrushRaster.draw uses .copy,
-        // which would erase the stroke/shadow everywhere inside the source's rectangular bounds.
-        context.saveGState()
-        context.translateBy(x: placed.minX, y: placed.maxY)
-        context.scaleBy(x: 1, y: -1)
-        context.setBlendMode(.normal)
-        context.draw(shown, in: CGRect(origin: .zero, size: placed.size))
-        context.restoreGState()
+        drawPixels(shown, in: placed, fill: pixelFill, context: context)
         // Over the pixels: a flat color, then a shadow inside the layer's own edges.
         if let overlay = effects.colorOverlay, overlay.isEnabled, overlay.opacity > 0,
            let shape = try? coverage(shown, in: placed, size: CGSize(width: width, height: height), blur: 0) {
@@ -493,6 +518,32 @@ nonisolated enum LayerEffectsRenderer {
         if let stroke, stroke.inside { try drawStroke(stroke) }
         guard let result = context.makeImage() else { throw ExportError.render }
         return (result, inset)
+    }
+
+    /// The pass that draws a layer's own pixels over the effects behind them, at its Fill. Source-over keeps those
+    /// effects beneath transparent (and faded) pixels, where `BrushRaster.draw`'s `.copy` would erase them across
+    /// the pixels' whole rectangle. `rect` is in the context's top-left pixel coordinates, as `BrushRaster.draw`'s.
+    static func drawPixels(_ image: CGImage, in rect: CGRect, fill: Double, context: CGContext) {
+        context.saveGState()
+        context.interpolationQuality = .none
+        context.translateBy(x: rect.minX, y: rect.maxY)
+        context.scaleBy(x: 1, y: -1)
+        context.setBlendMode(.normal)
+        context.setAlpha(CGFloat(fill))
+        context.draw(image, in: CGRect(origin: .zero, size: rect.size))
+        context.restoreGState()
+    }
+
+    /// Hides what `context` holds under `image`'s shape, in proportion to its alpha and whatever the layer's Fill:
+    /// Photoshop's "Layer Knocks Out Drop Shadow". `rect` is in the context's top-left pixel coordinates.
+    static func knockOut(_ image: CGImage, in rect: CGRect, context: CGContext) {
+        context.saveGState()
+        context.interpolationQuality = .none
+        context.translateBy(x: rect.minX, y: rect.maxY)
+        context.scaleBy(x: 1, y: -1)
+        context.setBlendMode(.destinationOut)
+        context.draw(image, in: CGRect(origin: .zero, size: rect.size))
+        context.restoreGState()
     }
 
     /// An inner glow's coverage: the source shape softened inward, kept to the layer's own shape.

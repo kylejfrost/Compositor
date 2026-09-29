@@ -3,8 +3,11 @@ import Metal
 
 /// Layer effects on the GPU: the outline's reach and the shadow's blur are the two heavy passes, and both are
 /// separable, so each runs as a row pass and a column pass over the same pixels. Falls back to the CPU renderer
-/// when Metal isn't available (see `LayerEffectsRenderer`). Export renders on a worker, so it holds only Metal objects,
-/// which are safe to use from any thread.
+/// when Metal isn't available (see `LayerEffectsRenderer`).
+///
+/// Not tied to the main actor: `LayerEffectsRenderer` renders effects off it, for exports and previews. Sharing one is
+/// safe, as it holds only Metal's device, command queue and pipeline states, which may be used from any thread, and
+/// each `render` makes its own buffers and command buffer.
 nonisolated final class MetalLayerEffects: Sendable {
     static let shared: MetalLayerEffects? = try? MetalLayerEffects()
     private let device: MTLDevice
@@ -31,7 +34,8 @@ nonisolated final class MetalLayerEffects: Sendable {
         var glowColor: SIMD4<Float>
         var innerGlowColor: SIMD4<Float>
         var flags: SIMD4<UInt32>        // has stroke, stroke inside, has shadow, has inner shadow
-        var more: SIMD4<UInt32>         // has color overlay, has outer glow, has inner glow, unused…
+        var more: SIMD4<UInt32>         // has color overlay, has outer glow, has inner glow, the layer knocks out its shadow
+        var pixels: SIMD4<Float>        // the layer's Fill, unused…
     }
 
     private init() throws {
@@ -55,8 +59,9 @@ nonisolated final class MetalLayerEffects: Sendable {
     }
 
     /// `pixels` — a layer's pixels as they are shown, with room around them for the effects — with its stroke and
-    /// drop shadow composited around them. The result is the same size.
-    func render(_ pixels: CGImage, effects: LayerEffects) throws -> CGImage {
+    /// drop shadow composited around them, the pixels themselves at `fill` (Photoshop's Fill; the effects are made
+    /// from the pixels' full shape and drawn at full strength). The result is the same size.
+    func render(_ pixels: CGImage, effects: LayerEffects, fill: Double = 1) throws -> CGImage {
         let width = pixels.width, height = pixels.height
         let count = width * height
         guard count > 0, count <= 80_000_000 else { throw ExportError.tooLarge }
@@ -189,7 +194,8 @@ nonisolated final class MetalLayerEffects: Sendable {
                                   Float(innerGlow?.color.blue ?? 0), Float(innerGlow?.opacity ?? 0)),
             flags: SIMD4(stroke != nil ? 1 : 0, stroke?.inside == true ? 1 : 0, shadow != nil ? 1 : 0,
                          innerShadow != nil ? 1 : 0),
-            more: SIMD4(overlay != nil ? 1 : 0, glow != nil ? 1 : 0, innerGlow != nil ? 1 : 0, 0))
+            more: SIMD4(overlay != nil ? 1 : 0, glow != nil ? 1 : 0, innerGlow != nil ? 1 : 0, shadow?.isKnockedOut == true ? 1 : 0),
+            pixels: SIMD4(Float(LayerOpacity.fill(fill)), 0, 0, 0))
         run(compose, [(input, 0), (third, 1), (second, 2), (output, 3), (inner, 4), (first, 5), (glowOutput, 6), (innerGlowOutput, 7)], &settings, MemoryLayout<Compose>.stride)
         encoder.endEncoding()
         command.commit()
@@ -215,7 +221,7 @@ nonisolated final class MetalLayerEffects: Sendable {
     struct Shift { uint width; uint height; float dx; float dy; };
     struct Blur { uint width; uint height; float sigma; uint radius; };
     struct Compose { uint width; uint height; float4 strokeColor; float4 shadowColor; float4 overlayColor;
-                     float4 innerColor; float4 glowColor; float4 innerGlowColor; uint4 flags; uint4 more; };
+                     float4 innerColor; float4 glowColor; float4 innerGlowColor; uint4 flags; uint4 more; float4 pixels; };
 
     kernel void effects_alpha(device const uchar4* pixels [[buffer(0)]],
                               device float* coverage [[buffer(1)]],
@@ -334,7 +340,8 @@ nonisolated final class MetalLayerEffects: Sendable {
     }
 
     // Shadow behind, outer glow over it, outside stroke over that, the layer's pixels over that, then a color overlay,
-    // an inner glow, an inner shadow and an inside stroke on top.
+    // an inner glow, an inner shadow and an inside stroke on top. A knocked-out shadow (Photoshop's default) is hidden
+    // by the layer's full shape, whatever its Fill, so a faded layer doesn't show its shadow through itself.
     kernel void effects_compose(device const uchar4* pixels [[buffer(0)]],
                                 device const float* ring [[buffer(1)]],
                                 device const float* shadow [[buffer(2)]],
@@ -351,6 +358,7 @@ nonisolated final class MetalLayerEffects: Sendable {
         float alpha = 0.0;
         if (settings.flags.z == 1) {
             float coverage = clamp(shadow[index] * settings.shadowColor.w, 0.0, 1.0);
+            if (settings.more.w == 1) { coverage *= 1.0 - shape[index]; }
             color = settings.shadowColor.xyz * coverage;
             alpha = coverage;
         }
@@ -364,7 +372,8 @@ nonisolated final class MetalLayerEffects: Sendable {
             color = settings.strokeColor.xyz * strokeCoverage + color * (1.0 - strokeCoverage);
             alpha = strokeCoverage + alpha * (1.0 - strokeCoverage);
         }
-        float4 source = float4(pixels[index]) / 255.0;
+        // The layer's own pixels at its Fill (premultiplied, so all four channels scale).
+        float4 source = float4(pixels[index]) / 255.0 * settings.pixels.x;
         color = source.xyz + color * (1.0 - source.w);
         alpha = source.w + alpha * (1.0 - source.w);
         if (settings.more.x == 1) {

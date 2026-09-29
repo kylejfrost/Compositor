@@ -1,0 +1,24 @@
+{
+  "skill_name": "compositor-variants-and-delivery",
+  "about": "Checks grade_scripted.py runs for skills/compositor-variants-and-delivery/evals/evals.json. File names, document identity and layout measurements are left for the grader agent.",
+  "evals": {
+    "1": [
+      {"match": "masters/spring-sale-master.comp/manifest.json has the same sha256 as before the run", "checks": [
+        {"type": "unchanged", "path": "masters/spring-sale-master.comp/manifest.json"}]}
+    ],
+    "2": [
+      {"match": "masters/spring-sale-master.comp/manifest.json has the same sha256 as before the run", "checks": [
+        {"type": "unchanged", "path": "masters/spring-sale-master.comp/manifest.json"}]}
+    ],
+    "3": [
+      {"match": "out/spring-sale/handoff/ contains a PNG of exactly 2160 x 2160", "checks": [
+        {"type": "image_size", "glob": "out/spring-sale/handoff/*.png", "width": 2160, "height": 2160},
+        {"type": "called", "tool": "export_image", "args": {"scale": 2}, "ok": true}]},
+      {"match": "contains a 1080 x 1350 JPEG and a layered file", "checks": [
+        {"type": "image_size", "glob": "out/spring-sale/handoff/*.jp*g", "width": 1080, "height": 1350},
+        {"type": "any", "checks": [
+          {"type": "exists", "glob": "out/spring-sale/handoff/*.psd"},
+          {"type": "exists", "glob": "out/spring-sale/handoff/*.comp"}]}]}
+    ]
+  }
+}

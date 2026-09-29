@@ -1,0 +1,45 @@
+<x:xmpmeta xmlns:x="adobe:ns:meta/">
+ <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+  <rdf:Description rdf:about=""
+    xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+   crs:PresetType="Look"
+   crs:UUID="00000000000000000000000000000009"
+   crs:SupportsAmount="True"
+   crs:SupportsColor="True"
+   crs:SupportsNormalDynamicRange="True"
+   crs:SupportsSceneReferred="True"
+   crs:SupportsOutputReferred="True"
+   crs:ConvertToGrayscale="True"
+   crs:LookTable="F17076FD8FE1F40B59244A7625F9C9EB"
+   crs:RGBTable="80789F529124E04D36526B648A1EF175"
+   crs:Table_F17076FD8FE1F40B59244A7625F9C9EB="2e000KZk$uzz]:0)N}/wLUp@1eC|PH)=X1W*O(Sj9NC}ZFvd#@[[kPDzxrzsZYNHQ{q+X=T:(*)E0qgps!H.FVDJ9Yy{JEJd0n?{o!=:]7Mx0i+dvzw6I1"
+   crs:Table_80789F529124E04D36526B648A1EF175="t9000{=f`:AQr@pwAJnEtgMp:F:VnRSX$2p^oc.nR}B)pGQTlX*33*)%3tC:l0]uf1^otyN09e'^8L#XNALEeQOzI(4Yvn7+OVb{JVHIIKI94(5JmDNbb=:ipz9'En=vI3vr3">
+   <crs:Name>
+    <rdf:Alt>
+     <rdf:li xml:lang="x-default">Mono Curve</rdf:li>
+    </rdf:Alt>
+   </crs:Name>
+   <crs:Group>
+    <rdf:Alt>
+     <rdf:li xml:lang="x-default">Synthetic</rdf:li>
+    </rdf:Alt>
+   </crs:Group>
+   <crs:ToneCurvePV2012>
+    <rdf:Seq>
+     <rdf:li>0, 10</rdf:li>
+     <rdf:li>64, 58</rdf:li>
+     <rdf:li>128, 132</rdf:li>
+     <rdf:li>192, 205</rdf:li>
+     <rdf:li>255, 250</rdf:li>
+    </rdf:Seq>
+   </crs:ToneCurvePV2012>
+   <crs:ToneCurvePV2012Red>
+    <rdf:Seq>
+     <rdf:li>0, 0</rdf:li>
+     <rdf:li>128, 140</rdf:li>
+     <rdf:li>255, 255</rdf:li>
+    </rdf:Seq>
+   </crs:ToneCurvePV2012Red>
+  </rdf:Description>
+ </rdf:RDF>
+</x:xmpmeta>

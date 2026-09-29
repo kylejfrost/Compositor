@@ -1,0 +1,30 @@
+{
+  "skill_name": "compositor-psd-templates",
+  "about": "Recipes scripts/skills-eval/replay_fixtures.py replays against the eval instance before the evals run: it writes each image at its path in the instance's Agent folder, runs each fixture's calls in order (each must succeed; the template is saved as a PSD by the app itself), and records the sha256 of every file left behind.",
+  "images": [
+    {"path": "eval-inputs/portrait-placeholder.png", "width": 800, "height": 800, "kind": "solid", "from": "#9aa0a6"},
+    {"path": "eval-inputs/endorser-portrait.png", "width": 1200, "height": 1500, "kind": "radial_gradient", "from": "#f2c6a0", "to": "#3b2f2f"},
+    {"path": "eval-inputs/logo-mark.png", "width": 200, "height": 200, "kind": "checker", "from": "#c8102e", "to": "#ffffff", "cell": 25}
+  ],
+  "fixtures": [
+    {
+      "id": "endorsement-card",
+      "description": "templates/endorsement-card-template.psd: a 1080x1350 card with a smart-object Photo frame (820x820, position-locked), point-text Name and Title layers centered under it, a Lock All 'Accent Bar' shape and a Logo, all inside the folder Card. The document is closed afterwards; the template's sha256 is the baseline.",
+      "outputs": ["templates/endorsement-card-template.psd"],
+      "calls": [
+        {"tool": "new_document", "arguments": {"width": 1080, "height": 1350, "name": "endorsement-card-template", "fill": "#f4efe6"}},
+        {"tool": "add_group", "arguments": {"name": "Card"}},
+        {"tool": "place_smart_object", "arguments": {"path": "eval-inputs/portrait-placeholder.png", "name": "Photo", "fit_rect": {"x": 130, "y": 120, "width": 820, "height": 820}, "fit": "fill"}},
+        {"tool": "add_shape", "arguments": {"kind": "rectangle", "rect": {"x": 130, "y": 960, "width": 820, "height": 12}, "color": "#c8102e", "name": "Accent Bar"}},
+        {"tool": "add_text_layer", "arguments": {"text": "Endorser Name", "x": 540, "y": 1000, "anchor": "top", "name": "Name", "style": {"font_name": "Helvetica-Bold", "font_size": 64, "color": "#1d1d1f", "alignment": "center"}}},
+        {"tool": "add_text_layer", "arguments": {"text": "Title, Company", "x": 540, "y": 1090, "anchor": "top", "name": "Title", "style": {"font_name": "Helvetica", "font_size": 36, "color": "#5f6368", "alignment": "center"}}},
+        {"tool": "add_image_layer", "arguments": {"path": "eval-inputs/logo-mark.png", "name": "Logo", "center": {"x": 540, "y": 1250}}},
+        {"tool": "scale_layer_to_fit", "arguments": {"layer": "Logo", "rect": {"x": 490, "y": 1200, "width": 100, "height": 100}, "mode": "contain"}},
+        {"tool": "set_layer_locks", "arguments": {"layer": "Photo", "position": true}},
+        {"tool": "set_layer_locks", "arguments": {"layer": "Accent Bar", "all": true}},
+        {"tool": "save_document_as", "arguments": {"path": "templates/endorsement-card-template.psd"}},
+        {"tool": "close_document", "arguments": {}}
+      ]
+    }
+  ]
+}

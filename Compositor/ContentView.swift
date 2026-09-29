@@ -279,6 +279,7 @@ struct ContentView: View {
             set: { if !$0 { session.cropError = nil } })) {
                 Button("OK") { session.cropError = nil }
             } message: { Text(session.cropError ?? "") }
+        .profileBrowserPanel(session)
     }
     private func requestNewCanvas() {
         if let applicationDelegate { Task { await applicationDelegate.projects.newCanvas() } }
