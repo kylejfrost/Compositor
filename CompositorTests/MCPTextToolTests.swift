@@ -221,6 +221,26 @@ import MCP
         #expect(layer(session, id)?.liveText?.style.fontSize == 30)
     }
 
+    @Test func setTextStyleKeepsPerRangeFontSizesAndRejectsOverlaps() async throws {
+        let (workspace, session, id) = try await titleWorkspace("Hello World")
+        let before = session.history.undoCount
+        let result = try await MCPTestSupport.call("set_text_style", ["layer": .string(id.uuidString), "style": .object([
+            "size_runs": .array([.object(["location": 6, "length": 5, "font_size": 36])]),
+        ])], in: workspace)
+        let style = try #require(layer(session, id)?.liveText?.style)
+        #expect(style.size(at: 5) == style.fontSize && style.size(at: 6) == 36 && style.size(at: 10) == 36)
+        #expect(result["text"]?.objectValue?["size_runs"]?.arrayValue?.first?.objectValue?["font_size"].flatMap(MCPValues.number) == 36)
+        #expect(session.history.undoCount == before + 1 && recorded(result) == true)
+
+        try await MCPTestSupport.call("set_text_style", ["layer": .string(id.uuidString), "style": .object([
+            "size_runs": .array([
+                .object(["location": 5, "length": 3, "font_size": 24]),
+                .object(["location": 7, "length": 2, "font_size": 48]),
+            ]),
+        ])], in: workspace, expectError: "invalid_argument")
+        #expect(session.history.undoCount == before + 1)
+    }
+
     @Test func getLayerReportsTheStyleSetTextStyleTakes() async throws {
         let (workspace, session, id) = try await titleWorkspace()
         try await MCPTestSupport.call("set_text_style", ["layer": "Title", "style": ["alignment": "right", "box_size": ["width": 320, "height": 90]]],

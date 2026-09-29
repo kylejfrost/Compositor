@@ -106,6 +106,7 @@ extension LayerTextStyle {
     nonisolated func scaled(x sx: CGFloat, y sy: CGFloat) -> LayerTextStyle? {
         var style = self
         style.fontSize *= sy
+        style.sizeRuns = sizeRuns?.map { LayerTextSizeRun(location: $0.location, length: $0.length, fontSize: $0.fontSize * sy) }
         style.leading *= sy
         style.tracking *= sy
         let widthScale = self.widthScale * sx / sy

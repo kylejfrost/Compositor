@@ -138,7 +138,7 @@ struct PSDTextImportTests {
         #expect(abs(anchor.x - 0.05) < 0.0001 && abs(anchor.y - 0.125) < 0.0001)
     }
 
-    @Test func twoRunsImportTheDominantRunWithANote() throws {
+    @Test func mixedFontAndSizeRunsStayEditableWithoutAConversionNote() throws {
         // "Headline" (8 units) in one font, " tiny" (5) in another, and the paragraph's `\r` in AdobeInvisFont.
         let runs = [PSDFixture.TextRun(length: 8, font: "HelveticaNeue-Bold", fontSize: 40),
                     PSDFixture.TextRun(length: 5, font: "Helvetica", fontSize: 12),
@@ -148,27 +148,25 @@ struct PSDTextImportTests {
         #expect(type.styleRuns.count == 3)
         let mapped = try #require(PSDTypeReader.style(type, fontResolver: FontResolver.self))
         #expect(mapped.style.fontName == "HelveticaNeue-Bold" && mapped.style.fontSize == 40)
-        let note = try #require(mapped.notes.first)
-        #expect(mapped.notes.count == 1)
-        #expect(note.contains("Helvetica 12"))
-        #expect(!note.contains("AdobeInvisFont"))
+        #expect(mapped.style.fontRuns == [LayerTextFontRun(location: 8, length: 5, fontName: "Helvetica")])
+        #expect(mapped.style.sizeRuns == [LayerTextSizeRun(location: 8, length: 5, fontSize: 12)])
+        #expect(mapped.notes.isEmpty)
         let imported = try importing(block)
-        #expect(imported.conversions.map(\.message) == [note])
+        #expect(imported.conversions.isEmpty)
         #expect(imported.layers.first?.liveText != nil)
     }
 
-    /// However many other styles the text has, the note names the first five, then how many more: a file of
-    /// thousands of one-letter runs makes a short note, found in one pass over the runs.
-    @Test func theMixedStylesNoteNamesAtMostFiveOtherStyles() throws {
+    /// Mixed sizes remain editable even when the source has many small runs.
+    @Test func manyMixedSizeRunsStayEditable() throws {
         let text = String(repeating: "a", count: 40) + String(repeating: "b", count: 12)
         let runs = [PSDFixture.TextRun(length: 40, font: "Helvetica", fontSize: 40)]
             + (1 ... 12).map { PSDFixture.TextRun(length: 1, font: "Helvetica", fontSize: Double($0)) }
             + [PSDFixture.TextRun(length: 1, font: "AdobeInvisFont", fontSize: 40)]
         let type = try PSDTypeReader.parse(PSDFixture.typeToolBlock(text: text, transform: [1, 0, 0, 1, 10, 50], runs: runs))
         let mapped = try #require(PSDTypeReader.style(type, fontResolver: FontResolver.self))
-        let note = try #require(mapped.notes.first)
-        #expect(note.contains("(Helvetica 1 px, Helvetica 2 px, Helvetica 3 px, Helvetica 4 px, Helvetica 5 px and 7 more)"))
-        #expect(!note.contains("Helvetica 6 px"))
+        #expect(mapped.notes.isEmpty)
+        #expect(mapped.style.sizeRuns?.count == 12)
+        #expect(mapped.style.size(at: 40) == 1 && mapped.style.size(at: 51) == 12)
     }
 
     @Test func aMissingFontKeepsTheRasterAndSaysWhatEditingWillUse() throws {

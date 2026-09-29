@@ -189,8 +189,8 @@ nonisolated enum PSDTextWriter {
 
     private typealias Items = [(key: String, value: EngineValue)]
 
-    /// The EngineData of a type layer drawn in one style: `Editor.Text` ends every paragraph in `\r` (the last one
-    /// too), one paragraph run per paragraph and one style run per stretch of one color and face, so every run
+    /// The EngineData of a type layer: `Editor.Text` ends every paragraph in `\r` (the last one too), one paragraph
+    /// run per paragraph and one style run per stretch of one color, face and size, so every run
     /// length fits the text and they add up to it exactly. The layer's face is `FontSet` entry 0.
     static func engineData(_ style: LayerTextStyle, fontName: String, fontType: Int) -> EngineValue {
         let paragraphs = Self.paragraphs(style.content)
@@ -248,6 +248,7 @@ nonisolated enum PSDTextWriter {
                 let data = run.map { item in
                     if item.key == "FillColor" { return (key: item.key, value: fillColor(styled.color)) }
                     if item.key == "Font" { return (key: item.key, value: EngineValue.integer(styled.fontIndex)) }
+                    if item.key == "FontSize" { return (key: item.key, value: EngineValue.number(Double(styled.fontSize))) }
                     return item
                 }
                 return .dictionary([(key: "StyleSheet", value: .dictionary([(key: "StyleSheetData", value: .dictionary(data))]))])
@@ -305,11 +306,12 @@ nonisolated enum PSDTextWriter {
     /// The style runs over `Editor.Text`. A CRLF is one paragraph break, and the closing CR inherits the last
     /// letter's color and face. The returned font names index `FontSet` in the same order the runs use.
     private static func styleRuns(_ style: LayerTextStyle, baseFontName: String)
-        -> (runs: [(length: Int, color: PaletteColor, fontIndex: Int)], fonts: [String]) {
+        -> (runs: [(length: Int, color: PaletteColor, fontIndex: Int, fontSize: CGFloat)], fonts: [String]) {
         let base = PaletteColor(red: style.red, green: style.green, blue: style.blue)
         let units = Array(style.content.utf16)
         var colors = Array(repeating: base, count: units.count)
         var faces = Array(repeating: baseFontName, count: units.count)
+        var sizes = Array(repeating: style.fontSize, count: units.count)
         for run in style.colorRuns ?? [] where run.length > 0 {
             let color = PaletteColor(red: run.red, green: run.green, blue: run.blue)
             for index in max(0, run.location)..<max(max(0, run.location), min(units.count, run.location + run.length)) {
@@ -322,22 +324,28 @@ nonisolated enum PSDTextWriter {
                 faces[index] = name
             }
         }
+        for run in style.sizeRuns ?? [] where run.length > 0 {
+            for index in max(0, run.location)..<max(max(0, run.location), min(units.count, run.location + run.length)) {
+                sizes[index] = run.fontSize
+            }
+        }
         var fonts = [baseFontName]
-        var engine: [(color: PaletteColor, fontIndex: Int)] = []
+        var engine: [(color: PaletteColor, fontIndex: Int, fontSize: CGFloat)] = []
         var index = 0
         while index < units.count {
             let name = faces[index]
             if !fonts.contains(name) { fonts.append(name) }
-            engine.append((colors[index], fonts.firstIndex(of: name)!))
+            engine.append((colors[index], fonts.firstIndex(of: name)!, sizes[index]))
             // "\r\n" is one paragraph break, as `paragraphs` reads it.
             index += units[index] == 13 && index + 1 < units.count && units[index + 1] == 10 ? 2 : 1
         }
-        engine.append(engine.last ?? (base, 0))
-        var runs: [(length: Int, color: PaletteColor, fontIndex: Int)] = []
+        engine.append(engine.last ?? (base, 0, style.fontSize))
+        var runs: [(length: Int, color: PaletteColor, fontIndex: Int, fontSize: CGFloat)] = []
         for styled in engine {
-            if let last = runs.last, last.color == styled.color, last.fontIndex == styled.fontIndex {
+            if let last = runs.last, last.color == styled.color, last.fontIndex == styled.fontIndex,
+               last.fontSize == styled.fontSize {
                 runs[runs.count - 1].length += 1
-            } else { runs.append((1, styled.color, styled.fontIndex)) }
+            } else { runs.append((1, styled.color, styled.fontIndex, styled.fontSize)) }
         }
         return (runs, fonts)
     }

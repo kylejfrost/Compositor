@@ -1,8 +1,8 @@
-# Compositor project format, versions 1–11
+# Compositor project format, versions 1–13
 
 A `.comp` file is a macOS document package containing `manifest.json`, an `images/` directory of `<layer UUID>.png` assets, for documents opened from Photoshop a `psd/` directory of sidecars and a `smartobjects/` directory of smart-object contents (version 10), and, for documents with Profile adjustments, a `profiles/` directory (version 10). Saves made through the app or its document save tool may also include `QuickLook/Preview.jpg`, a flattened preview that loading ignores.
 
-The manifest identifies `com.compositor.project`, version `11` for new saves (versions `1`–`10` remain readable), and the sRGB working space. It stores document UUID, pixel dimensions, active layer UUID, and layers in bottom-to-top order. Each layer stores its UUID, name, visibility, transform (origin, size, clockwise rotation, flips, sampling), and optional image filename. Blank layers have no image asset.
+The manifest identifies `com.compositor.project`, version `13` for new saves (versions `1`–`12` remain readable), and the sRGB working space. It stores document UUID, pixel dimensions, active layer UUID, and layers in bottom-to-top order. Each layer stores its UUID, name, visibility, transform (origin, size, clockwise rotation, flips, sampling), and optional image filename. Blank layers have no image asset.
 
 Embedded PNGs preserve source pixels and transparency; transforms remain separate. Projects survive moving or deleting imported source photos. Saving uses a coordinated atomic package replacement. Unsupported versions, invalid metadata, missing assets, unsafe paths, and oversized data are rejected before replacing the live document.
 
@@ -35,6 +35,10 @@ Version 9 adds three adjustment kinds that sample neighboring pixels: `Gaussian 
 Version 10 lets a text layer color some of its letters differently: optional `colorRuns` in its `text` metadata (see Editable text). Files declaring 1–9 cannot contain it. Version 10 also holds Photoshop data, locks and fill, and Profile adjustments (see [Version 10: Photoshop data, locks and fill](#version-10-photoshop-data-locks-and-fill) and [Profile adjustments](#profile-adjustments-version-10)); these were added alongside `colorRuns` under the same number, all optional, so a version 10 file may carry any of them.
 
 Version 11 lets those letters use different faces too: optional `fontRuns` in the same metadata. Files declaring 1–10 cannot contain it. `colorRuns` stays valid from version 10.
+
+Version 12 marks the first project version written by the MCP and Photoshop integration. It establishes that readers understand the PSD preservation sidecars, locks, Fill, smart-object payloads, and profile adjustments used by this build. Files declaring versions 1–11 remain readable and preserve the optional values their version carries; versions 10 and 11 can occur in projects written by the earlier feature branch. Builds that support only through version 11 must refuse version 12 rather than silently dropping Photoshop-specific state.
+
+Version 13 adds optional `sizeRuns` to editable text, the per-letter font sizes used by imported Photoshop type layers and MCP text edits. Each run has a UTF-16 `location`, positive `length`, and `fontSize` in layer pixels (1–2,000). Runs are sorted, non-overlapping and contained in the text. Files declaring versions 1–12 cannot contain size runs.
 
 ### Additive layer fields
 

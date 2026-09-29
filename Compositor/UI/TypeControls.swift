@@ -13,6 +13,21 @@ struct TypeControls: View {
             session.changeTextStyle { $0[keyPath: key] = CGFloat(value) }
         })
     }
+    private var fontSize: Binding<Double> {
+        Binding(get: {
+            guard let draft = session.textDraft else { return Double(session.currentTextStyle.fontSize) }
+            let selection = draft.selection
+            if selection.length > 0, let size = draft.style.uniformSize(in: selection) { return Double(size) }
+            if selection.length == 0 { return Double(draft.style.size(at: max(0, selection.location - 1))) }
+            return Double(draft.style.fontSize)
+        }, set: { value in
+            let size = CGFloat(min(2000, max(1, value)))
+            session.changeTextStyle { style in
+                if let draft = session.textDraft { style.setSize(size, in: draft.selection) }
+                else { style.fontSize = size }
+            }
+        })
+    }
     var body: some View {
         HStack(spacing: 12) {
             Text("Type").font(ToolHeaderStyle.titleFont)
@@ -37,10 +52,10 @@ struct TypeControls: View {
                         }
                     })
                         .frame(width: 210).help("Font face, including bold and italic variants")
-                    TextField("Size", value: number(\.fontSize), format: .number).frame(width: 52)
-                        .unitSuffix("px", scrubValue: value(\.fontSize), sensitivity: 1, range: 1...2000, step: 1)
-                        .arrowSteps(value: { Double(session.currentTextStyle.fontSize) },
-                                    change: { stepped in session.changeTextStyle { $0.fontSize = CGFloat(min(2000, max(1, stepped))) } })
+                    TextField("Size", value: fontSize, format: .number).frame(width: 52)
+                        .unitSuffix("px", scrubValue: fontSize, sensitivity: 1, range: 1...2000, step: 1)
+                        .arrowSteps(value: { fontSize.wrappedValue },
+                                    change: { stepped in fontSize.wrappedValue = stepped })
                     Button { session.openTextColorPicker() } label: {
                         let color = session.typeColor
                         let swatch = RoundedRectangle(cornerRadius: 3, style: .continuous)

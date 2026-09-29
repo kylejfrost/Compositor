@@ -575,7 +575,7 @@ struct TypeToolTests {
         #expect(pixels.red > 50 && pixels.dark > 50)
 
         let snapshot = try #require(session.projectSnapshot())
-        #expect(snapshot.manifest.version == 11)
+        #expect(snapshot.manifest.version == 13)
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("TextColors-\(UUID()).comp")
         defer { try? FileManager.default.removeItem(at: url) }
         try await ProjectStore.shared.save(snapshot, to: url)
@@ -604,6 +604,14 @@ struct TypeToolTests {
             _ = try await ProjectStore.shared.load(from: url)
             Issue.record("Version 10 with font runs should be rejected")
         } catch ProjectError.invalid {}
+
+        legacy.version = 12
+        legacy.layers[textIndex].text?.sizeRuns = [LayerTextSizeRun(location: 0, length: 1, fontSize: 24)]
+        try JSONEncoder().encode(legacy).write(to: url.appendingPathComponent("manifest.json"))
+        do {
+            _ = try await ProjectStore.shared.load(from: url)
+            Issue.record("Version 12 with size runs should be rejected")
+        } catch ProjectError.invalid {}
     }
 
     @Test func fontAppliesToTheSelectionOnly() {
@@ -626,6 +634,26 @@ struct TypeToolTests {
         style.replaceCharacters(in: NSRange(location: 5, length: 0), withLength: 1)
         style.content += "!"
         #expect(style.isValid && style.fontName(at: 5) == "Courier")
+    }
+
+    @Test func sizesApplyToTheSelectionAndTypingInheritsThePreviousRun() throws {
+        var style = LayerTextStyle()
+        style.content = "Hello"
+        style.fontSize = 36
+        style.setSize(20, in: NSRange(location: 0, length: 2))
+        #expect(style.fontSize == 36)
+        #expect(style.sizeRuns == [LayerTextSizeRun(location: 0, length: 2, fontSize: 20)])
+        #expect(style.size(at: 0) == 20 && style.size(at: 2) == 36)
+        #expect(style.uniformSize(in: NSRange(location: 0, length: 2)) == 20)
+        #expect(style.uniformSize(in: NSRange(location: 0, length: 5)) == nil)
+
+        style.replaceCharacters(in: NSRange(location: 2, length: 1), withLength: 2)
+        style.content = (style.content as NSString).replacingCharacters(in: NSRange(location: 2, length: 1), with: "ab")
+        #expect(style.isValid)
+        #expect(style.sizeRuns == [LayerTextSizeRun(location: 0, length: 4, fontSize: 20)])
+        let attributed = EditorSession.attributedText(style)
+        #expect((attributed.attribute(.font, at: 0, effectiveRange: nil) as? NSFont)?.pointSize == 20)
+        #expect((attributed.attribute(.font, at: 4, effectiveRange: nil) as? NSFont)?.pointSize == 36)
     }
 
     @Test func selectedFontSurvivesReopening() async throws {

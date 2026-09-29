@@ -859,10 +859,24 @@ Adds a live text layer: point text as big as its text, or paragraph text wrappin
 | `style.alignment` | string |  |  | `left`, `center`, `right` | Line alignment. |
 | `style.box_size` | object {width, height} \| null |  |  |  | Paragraph text: the box it wraps in, padding included. null: point text. |
 | `style.color` | object {r, g, b} \| string `^#[0-9A-Fa-f]{6}$` \| one of `foreground`, `background` |  |  |  | Text color: {r, g, b}, "#rrggbb", "foreground" or "background". |
+| `style.color_runs` | array of object |  |  | ≤ 100000 items | Optional per-range colors. Ranges use zero-based UTF-16 offsets; fields are location, length, red, green and blue. |
+| `style.color_runs[].blue` | number | yes |  | 0–1 | Blue component. |
+| `style.color_runs[].green` | number | yes |  | 0–1 | Green component. |
+| `style.color_runs[].length` | integer | yes |  | ≥ 1 | UTF-16 range length. |
+| `style.color_runs[].location` | integer | yes |  | ≥ 0 | UTF-16 start offset. |
+| `style.color_runs[].red` | number | yes |  | 0–1 | Red component. |
 | `style.font_name` | string |  |  |  | PostScript name (list_fonts); a missing font draws with a substitute (check_fonts). |
+| `style.font_runs` | array of object |  |  | ≤ 100000 items | Optional per-range font faces. Ranges use zero-based UTF-16 offsets; fields are location, length and font_name. |
+| `style.font_runs[].font_name` | string | yes |  |  | PostScript font name. |
+| `style.font_runs[].length` | integer | yes |  | ≥ 1 | UTF-16 range length. |
+| `style.font_runs[].location` | integer | yes |  | ≥ 0 | UTF-16 start offset. |
 | `style.font_size` | number |  |  | 1–2000 | Type size in pixels. |
 | `style.horizontal_scale` | number 0.1–10 \| null |  |  |  | Width stretch; null is 1. |
 | `style.leading` | number |  |  | 0–5000 | Baseline to baseline in pixels; 0 is auto. |
+| `style.size_runs` | array of object |  |  | ≤ 100000 items | Optional per-range font sizes in pixels. Ranges use zero-based UTF-16 offsets; fields are location, length and font_size. |
+| `style.size_runs[].font_size` | number | yes |  | 1–2000 | Font size in pixels. |
+| `style.size_runs[].length` | integer | yes |  | ≥ 1 | UTF-16 range length. |
+| `style.size_runs[].location` | integer | yes |  | ≥ 0 | UTF-16 start offset. |
 | `style.tracking` | number |  |  | -100–1000 | Extra space after each letter. |
 
 ### `set_text` — Set text
@@ -881,7 +895,7 @@ Replaces a text layer's text, keeping its style. Point text keeps its anchor (th
 
 **Effect:** additive, idempotent
 
-Changes a text layer's style fields, in the form get_layer reports under text: font_name, font_size, color, alignment, tracking, leading, box_size (null makes point text), horizontal_scale, content. Point text keeps its anchor, paragraph text its box's top-left. An unknown or out-of-range field fails naming it.
+Patches a live text layer's style; optional color_runs, font_runs and size_runs use UTF-16 offsets.
 
 | Parameter | Type | Required | Default | Allowed | Description |
 |---|---|---|---|---|---|
@@ -891,11 +905,25 @@ Changes a text layer's style fields, in the form get_layer reports under text: f
 | `style.alignment` | string |  |  | `left`, `center`, `right` | Line alignment. |
 | `style.box_size` | object {width, height} \| null |  |  |  | Paragraph text: the box it wraps in, padding included. null: point text. |
 | `style.color` | object {r, g, b} \| string `^#[0-9A-Fa-f]{6}$` \| one of `foreground`, `background` |  |  |  | Text color: {r, g, b}, "#rrggbb", "foreground" or "background". |
+| `style.color_runs` | array of object |  |  | ≤ 100000 items | Optional per-range colors. Ranges use zero-based UTF-16 offsets; fields are location, length, red, green and blue. |
+| `style.color_runs[].blue` | number | yes |  | 0–1 | Blue component. |
+| `style.color_runs[].green` | number | yes |  | 0–1 | Green component. |
+| `style.color_runs[].length` | integer | yes |  | ≥ 1 | UTF-16 range length. |
+| `style.color_runs[].location` | integer | yes |  | ≥ 0 | UTF-16 start offset. |
+| `style.color_runs[].red` | number | yes |  | 0–1 | Red component. |
 | `style.content` | string |  |  |  | The text. |
 | `style.font_name` | string |  |  |  | PostScript name (list_fonts); a missing font draws with a substitute (check_fonts). |
+| `style.font_runs` | array of object |  |  | ≤ 100000 items | Optional per-range font faces. Ranges use zero-based UTF-16 offsets; fields are location, length and font_name. |
+| `style.font_runs[].font_name` | string | yes |  |  | PostScript font name. |
+| `style.font_runs[].length` | integer | yes |  | ≥ 1 | UTF-16 range length. |
+| `style.font_runs[].location` | integer | yes |  | ≥ 0 | UTF-16 start offset. |
 | `style.font_size` | number |  |  | 1–2000 | Type size in pixels. |
 | `style.horizontal_scale` | number 0.1–10 \| null |  |  |  | Width stretch; null is 1. |
 | `style.leading` | number |  |  | 0–5000 | Baseline to baseline in pixels; 0 is auto. |
+| `style.size_runs` | array of object |  |  | ≤ 100000 items | Optional per-range font sizes in pixels. Ranges use zero-based UTF-16 offsets; fields are location, length and font_size. |
+| `style.size_runs[].font_size` | number | yes |  | 1–2000 | Font size in pixels. |
+| `style.size_runs[].length` | integer | yes |  | ≥ 1 | UTF-16 range length. |
+| `style.size_runs[].location` | integer | yes |  | ≥ 0 | UTF-16 start offset. |
 | `style.tracking` | number |  |  | -100–1000 | Extra space after each letter. |
 
 ### `fit_text` — Fit text to a width
@@ -924,10 +952,24 @@ Measures a text layer, or 'text' in a 'style', as Compositor lays it out. Return
 | `style.alignment` | string |  |  | `left`, `center`, `right` | Line alignment. |
 | `style.box_size` | object {width, height} \| null |  |  |  | Paragraph text: the box it wraps in, padding included. null: point text. |
 | `style.color` | object {r, g, b} \| string `^#[0-9A-Fa-f]{6}$` \| one of `foreground`, `background` |  |  |  | Text color: {r, g, b}, "#rrggbb", "foreground" or "background". |
+| `style.color_runs` | array of object |  |  | ≤ 100000 items | Optional per-range colors. Ranges use zero-based UTF-16 offsets; fields are location, length, red, green and blue. |
+| `style.color_runs[].blue` | number | yes |  | 0–1 | Blue component. |
+| `style.color_runs[].green` | number | yes |  | 0–1 | Green component. |
+| `style.color_runs[].length` | integer | yes |  | ≥ 1 | UTF-16 range length. |
+| `style.color_runs[].location` | integer | yes |  | ≥ 0 | UTF-16 start offset. |
+| `style.color_runs[].red` | number | yes |  | 0–1 | Red component. |
 | `style.font_name` | string |  |  |  | PostScript name (list_fonts); a missing font draws with a substitute (check_fonts). |
+| `style.font_runs` | array of object |  |  | ≤ 100000 items | Optional per-range font faces. Ranges use zero-based UTF-16 offsets; fields are location, length and font_name. |
+| `style.font_runs[].font_name` | string | yes |  |  | PostScript font name. |
+| `style.font_runs[].length` | integer | yes |  | ≥ 1 | UTF-16 range length. |
+| `style.font_runs[].location` | integer | yes |  | ≥ 0 | UTF-16 start offset. |
 | `style.font_size` | number |  |  | 1–2000 | Type size in pixels. |
 | `style.horizontal_scale` | number 0.1–10 \| null |  |  |  | Width stretch; null is 1. |
 | `style.leading` | number |  |  | 0–5000 | Baseline to baseline in pixels; 0 is auto. |
+| `style.size_runs` | array of object |  |  | ≤ 100000 items | Optional per-range font sizes in pixels. Ranges use zero-based UTF-16 offsets; fields are location, length and font_size. |
+| `style.size_runs[].font_size` | number | yes |  | 1–2000 | Font size in pixels. |
+| `style.size_runs[].length` | integer | yes |  | ≥ 1 | UTF-16 range length. |
+| `style.size_runs[].location` | integer | yes |  | ≥ 0 | UTF-16 start offset. |
 | `style.tracking` | number |  |  | -100–1000 | Extra space after each letter. |
 | `text` | string |  |  |  | Text to measure instead of a layer. |
 
@@ -1568,7 +1610,7 @@ Runs a filter on a layer's pixels, inside the selection when there is one, witho
 |---|---|---|---|---|---|
 | `document` | integer ≥ 0 \| string |  |  |  | Default: the current tab. |
 | `layer` | string | yes |  |  | The layer: id, name, "Group/Child" path, or "@active". |
-| `kind` | string | yes |  | `gaussian_blur`, `motion_blur`, `add_noise`, `vignette`, `bloom_glow`, `tonal_contrast`, `lens_correction`, `camera_raw_filter`, `curves`, `exposure`, `gradient_map`, `grain`, `black_white`, `color_balance` | The filter. |
+| `kind` | string | yes |  | `gaussian_blur`, `motion_blur`, `add_noise`, `vignette`, `bloom_glow`, `dither`, `tonal_contrast`, `lens_correction`, `camera_raw_filter`, `curves`, `exposure`, `gradient_map`, `grain`, `black_white`, `color_balance` | The filter. |
 | `settings` | object |  |  |  | Settings to change from the defaults. |
 
 ### `apply_levels` — Apply levels

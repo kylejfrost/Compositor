@@ -202,8 +202,16 @@ final class InlineTextEditor: NSView, NSTextViewDelegate {
             attributes[.foregroundColor] = NSColor.clear
             if !textView.hasMarkedText() {
                 textView.textStorage?.setAttributes(attributes, range: NSRange(location: 0, length: textView.string.utf16.count))
-                for run in style.fontRuns ?? [] where EditorSession.containsTextRun(run.location, run.length, in: textView.string.utf16.count) {
-                    let font = NSFont(name: run.fontName, size: style.fontSize) ?? NSFont.systemFont(ofSize: style.fontSize)
+                for run in style.fontAttributeRuns() where EditorSession.containsTextRun(run.location, run.length, in: textView.string.utf16.count) {
+                    let resolved = FontResolver.resolve(run.fontName, size: run.fontSize).font
+                    let font: NSFont
+                    if style.widthScale == 1 {
+                        font = resolved
+                    } else {
+                        let stretch = AffineTransform(m11: style.widthScale * run.fontSize, m12: 0,
+                                                      m21: 0, m22: run.fontSize, tX: 0, tY: 0)
+                        font = NSFont(descriptor: resolved.fontDescriptor, textTransform: stretch) ?? resolved
+                    }
                     textView.textStorage?.addAttribute(.font, value: font, range: NSRange(location: run.location, length: run.length))
                 }
                 textView.setSelectedRange(NSRange(location: min(selection.location, textView.string.utf16.count),
@@ -211,7 +219,8 @@ final class InlineTextEditor: NSView, NSTextViewDelegate {
             }
             let caret = selection.length > 0 ? selection.location : max(0, selection.location - 1)
             let face = style.fontName(at: caret)
-            attributes[.font] = NSFont(name: face, size: style.fontSize) ?? NSFont.systemFont(ofSize: style.fontSize)
+            let size = style.size(at: caret)
+            attributes[.font] = FontResolver.resolve(face, size: size).font
             textView.typingAttributes = attributes
             shownStyle = style
             updateInsertionPointColor(style)
@@ -238,11 +247,12 @@ final class InlineTextEditor: NSView, NSTextViewDelegate {
         if let pendingStyle, pendingStyle.content == textView.string {
             draft.style.colorRuns = pendingStyle.colorRuns
             draft.style.fontRuns = pendingStyle.fontRuns
+            draft.style.sizeRuns = pendingStyle.sizeRuns
         }
         pendingStyle = nil
         draft.style.content = textView.string
         // Text NSTextView changed without saying how can't keep its colors and faces letter for letter.
-        if !draft.style.isValid { draft.style.colorRuns = nil; draft.style.fontRuns = nil }
+        if !draft.style.isValid { draft.style.colorRuns = nil; draft.style.fontRuns = nil; draft.style.sizeRuns = nil }
         draft.selection = textView.selectedRange()
         shownStyle = draft.style
         session.textDraft = draft
@@ -254,7 +264,7 @@ final class InlineTextEditor: NSView, NSTextViewDelegate {
         let length = replacementString?.utf16.count ?? 0
         guard textView.string.utf16.count - affectedCharRange.length + length <= 100_000 else { return false }
         if !synchronizing, let draft = canvas?.session.textDraft,
-           draft.style.colorRuns != nil || draft.style.fontRuns != nil {
+           draft.style.colorRuns != nil || draft.style.fontRuns != nil || draft.style.sizeRuns != nil {
             var style = pendingStyle ?? draft.style
             guard NSMaxRange(affectedCharRange) <= style.content.utf16.count else { return true }
             style.replaceCharacters(in: affectedCharRange, withLength: length)

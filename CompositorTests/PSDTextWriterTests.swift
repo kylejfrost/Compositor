@@ -166,6 +166,17 @@ struct PSDTextWriterTests {
         #expect(engine[path: "ResourceDict.FontSet.2.Name"]?.string == "AdobeInvisFont")
     }
 
+    @Test func lettersWithDifferentSizesStayInTheirPhotoshopStyleRuns() throws {
+        var mixed = style("Hi\r\nyo", size: 40)
+        mixed.sizeRuns = [LayerTextSizeRun(location: 1, length: 1, fontSize: 18)]
+        let data = PSDEngineDataWriter.data(PSDTextWriter.engineData(mixed, fontName: "Helvetica", fontType: 1))
+        let engine = try EngineDataParser.parse(data)
+        #expect(engine[path: "EngineDict.StyleRun.RunLengthArray"] == .array([.integer(1), .integer(1), .integer(4)]))
+        #expect(engine[path: "EngineDict.StyleRun.RunArray.0.StyleSheet.StyleSheetData.FontSize"] == .number(40))
+        #expect(engine[path: "EngineDict.StyleRun.RunArray.1.StyleSheet.StyleSheetData.FontSize"] == .number(18))
+        #expect(engine[path: "EngineDict.StyleRun.RunArray.2.StyleSheet.StyleSheetData.FontSize"] == .number(40))
+    }
+
     @Test func aTwoParagraphCenteredStyleWritesPhotoshopsEngineData() throws {
         var centered = style("Hello\nWorld", size: 36, alignment: .center)
         centered.red = 1; centered.green = 0.5; centered.blue = 0
@@ -399,7 +410,9 @@ struct PSDTextWriterTests {
         let block = try #require(try record(document, "Title").extras?.block("TySh"))
         #expect(block != tySh)
         let type = try PSDTypeReader.parse(block)
-        #expect(type.styleRuns.map(\.fontName) == [imported.fontName] && type.styleRuns.map(\.fontSize) == [24])
+        #expect(type.styleRuns.map(\.fontName) == ["Helvetica", "Helvetica-Bold"])
+        #expect(type.styleRuns.map(\.fontSize) == [24, 30])
+        #expect(type.styleRuns.map(\.length) == [3, 3])
         #expect(try engine(block)[path: "EngineDict.Editor.Text"]?.string == "Hello\r")
         #expect(try storedTextIndex(block) == 4)
         expectTransform(type.transform, [1, 0, 0, 1, 160, 90])

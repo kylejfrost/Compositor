@@ -205,8 +205,9 @@ nonisolated enum PSDTypeReader {
         return nil
     }
 
-    /// Compositor text for `layer`: the dominant style run (most characters, runs of only line breaks aside) over the
-    /// whole text, sizes scaled by the transform, and `origin`, the document point Photoshop's first baseline (point
+    /// Compositor text for `layer`: the dominant style run (most characters, runs of only line breaks aside) as the
+    /// base style, supported font, color and size runs kept at their UTF-16 offsets, and sizes scaled by the transform.
+    /// `origin` is the document point Photoshop's first baseline (point
     /// text) or box top-left (paragraph text) sits on. Nil for vertical, warped, skewed (≥ 1%), rotated or mirrored
     /// text, non-RGB fills, and text whose values Compositor's text can't hold.
     @MainActor
@@ -223,6 +224,7 @@ nonisolated enum PSDTypeReader {
         style.tracking = CGFloat(min(1000, max(-100, run.tracking / 1000 * Double(style.fontSize))))
         let values = run.fillValues.map { CGFloat(min(1, max(0, $0))) }
         style.red = values[1]; style.green = values[2]; style.blue = values[3]
+        applySupportedRuns(layer, base: run, scale: sy, to: &style)
         let justification = dominantParagraph(layer)?.justification ?? 0
         switch justification {
         case 1, 4: style.alignment = .right
@@ -245,7 +247,7 @@ nonisolated enum PSDTypeReader {
         }
         guard style.isValid, origin.x.isFinite, origin.y.isFinite else { return nil }
         if run.fauxBold || run.fauxItalic { notes.append(fauxStyleNote) }
-        if let note = otherStylesNote(layer, dominant: run, scale: sy) { notes.append(note) }
+        if let note = otherStylesNote(layer, dominant: run) { notes.append(note) }
         let resolved = fontResolver.resolve(style.fontName, size: style.fontSize)
         if resolved.isSubstitute {
             let name = resolved.font.displayName ?? resolved.font.fontName
@@ -289,38 +291,66 @@ nonisolated enum PSDTypeReader {
         return layer.paragraphRuns[best]
     }
 
-    /// The most other styles the mixed-styles note names; the rest are counted.
-    private static let namedStyles = 5
-
-    /// A note naming the (font, size) of the other runs that show characters, when the text mixes styles: the first
-    /// `namedStyles` of them in text order, then how many more. One pass over the runs, however many there are.
-    private static func otherStylesNote(_ layer: PSDTypeLayer, dominant: PSDTextRun, scale: Double) -> String? {
-        func size(_ run: PSDTextRun) -> String {
-            let value = (min(2000, max(1, run.fontSize * scale)) * 10).rounded() / 10
-            return value == value.rounded() ? String(Int(value)) : String(value)
+    /// Preserve the editable font, color and size runs while the imported pixels still show Photoshop's original text.
+    private static func applySupportedRuns(_ layer: PSDTypeLayer, base: PSDTextRun, scale: Double, to style: inout LayerTextStyle) {
+        let contentLength = style.content.utf16.count
+        let textLength = layer.text.utf16.count
+        var cursor = 0
+        for run in layer.styleRuns {
+            let start = min(cursor, contentLength)
+            let runLength = max(0, run.length)
+            let covered = min(runLength, textLength - cursor)
+            let end = start + min(covered, contentLength - start)
+            cursor += covered
+            let length = end - start
+            guard length > 0 else { continue }
+            let range = NSRange(location: start, length: length)
+            if run.fontName != base.fontName, !run.fontName.isEmpty {
+                let next = LayerTextFontRun(location: range.location, length: range.length, fontName: run.fontName)
+                var runs = style.fontRuns ?? []
+                if let last = runs.last, last.location + last.length == next.location, last.fontName == next.fontName {
+                    runs[runs.count - 1].length += next.length
+                } else { runs.append(next) }
+                style.fontRuns = runs
+            }
+            let size = CGFloat(min(2000, max(1, run.fontSize * scale)))
+            if abs(size - style.fontSize) > 0.001 {
+                let next = LayerTextSizeRun(location: range.location, length: range.length, fontSize: size)
+                var runs = style.sizeRuns ?? []
+                if let last = runs.last, last.location + last.length == next.location, last.fontSize == next.fontSize {
+                    runs[runs.count - 1].length += next.length
+                } else { runs.append(next) }
+                style.sizeRuns = runs
+            }
+            if run.fillType == 1, run.fillValues.count == 4, run.fillValues.allSatisfy(\.isFinite) {
+                let red = CGFloat(min(1, max(0, run.fillValues[1])))
+                let green = CGFloat(min(1, max(0, run.fillValues[2])))
+                let blue = CGFloat(min(1, max(0, run.fillValues[3])))
+                if red != style.red || green != style.green || blue != style.blue {
+                    let next = LayerTextColorRun(location: range.location, length: range.length, red: red, green: green, blue: blue)
+                    var runs = style.colorRuns ?? []
+                    if let last = runs.last, last.location + last.length == next.location,
+                       last.red == next.red, last.green == next.green, last.blue == next.blue {
+                        runs[runs.count - 1].length += next.length
+                    } else { runs.append(next) }
+                    style.colorRuns = runs
+                }
+            }
         }
-        func label(_ run: PSDTextRun) -> String { "\(run.fontName) \(size(run)) px" }
+    }
+
+    private static func otherStylesNote(_ layer: PSDTypeLayer, dominant: PSDTextRun) -> String? {
         let counts = coverage(layer.styleRuns, length: \.length, in: layer.text)
         let shown = zip(layer.styleRuns, counts).filter { $0.1 > 0 }.map(\.0)
-        let main = label(dominant)
-        var seen: Set<String> = [], named: [String] = []
         var differs = false
         for run in shown where run != dominant {
-            let name = label(run)
-            if name != main {
-                if seen.insert(name).inserted, named.count < namedStyles { named.append(name) }
-            } else if run.fillValues != dominant.fillValues || run.tracking != dominant.tracking
-                        || run.leading != dominant.leading || run.autoLeading != dominant.autoLeading
-                        || run.horizontalScale != dominant.horizontalScale || run.verticalScale != dominant.verticalScale
-                        || run.fauxBold != dominant.fauxBold || run.fauxItalic != dominant.fauxItalic {
+            if run.fillType != 1 || run.fillValues.count != 4 || run.fillValues.contains(where: { !$0.isFinite })
+                || run.tracking != dominant.tracking || run.leading != dominant.leading || run.autoLeading != dominant.autoLeading
+                || run.horizontalScale != dominant.horizontalScale || run.verticalScale != dominant.verticalScale
+                || run.fauxBold != dominant.fauxBold || run.fauxItalic != dominant.fauxItalic {
                 differs = true
             }
         }
-        if !named.isEmpty {
-            let more = seen.count - named.count
-            let list = named.joined(separator: ", ") + (more > 0 ? " and \(more) more" : "")
-            return "This text mixes styles. It’s editable as \(main) throughout; editing it drops its other styles (\(list))."
-        }
-        return differs ? "This text mixes colors, spacing or character styles. It’s editable with its main style; editing it applies that style throughout." : nil
+        return differs ? "This text mixes character spacing or styles Compositor can’t edit per letter. Editing it applies the main spacing and character style throughout." : nil
     }
 }

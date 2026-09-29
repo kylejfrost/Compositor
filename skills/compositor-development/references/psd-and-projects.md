@@ -77,8 +77,8 @@ A `.comp` file is a package: `manifest.json`, `images/<layer UUID>.png` (and
 own wire format (`<layer UUID>.blocks`, `<layer UUID>.divider.blocks`,
 `document.resources`, `document.blocks`, `document.linked`). `ProjectStore` writes it
 atomically and validates everything (versions, assets, sidecars, sizes, parent links)
-before it replaces the open document. `ProjectManifest.current` is 11; versions
-1–11 all read.
+before it replaces the open document. `ProjectManifest.current` is 13; versions
+1–13 all read.
 
 Rules for a schema change:
 

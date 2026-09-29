@@ -87,7 +87,7 @@ All in `Compositor/Document/`, mostly `EditorSession.swift`.
 - **`ProjectStore`** (`IO/ProjectStore.swift`): reads and writes the `.comp` package
   (`manifest.json`, `images/`, and for Photoshop documents `psd/` sidecars) atomically,
   validating everything before replacing the live document. `ProjectManifest`
-  (`current = 11`) and `ProjectLayerRecord` are the saved form;
+  (`current = 13`) and `ProjectLayerRecord` are the saved form;
   `IO/ProjectPSDRecords.swift` stores the Photoshop data (format 10).
 - **`ProjectSnapshot`**: the saved form of a document in memory (manifest, images, masks),
   built by `session.projectSnapshot()`. Saving, Image Size, Canvas Size, Crop, adjustment

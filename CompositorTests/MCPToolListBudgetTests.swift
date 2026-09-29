@@ -7,7 +7,8 @@ import MCP
 /// the `tools/list` result.
 @MainActor struct MCPToolListBudgetTests {
     /// The most bytes `tools/list` may take, as the server encodes it. Clients put the whole list in the model's context.
-    static let toolListBudget = 120_000
+    /// The 8 KB increase covers editable text runs and the solid-fill tool while keeping the list below 32K tokens.
+    static let toolListBudget = 128_000
     /// The most bytes the instructions may take.
     static let instructionsBudget = 4096
 

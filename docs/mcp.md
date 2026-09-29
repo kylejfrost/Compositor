@@ -626,7 +626,7 @@ then its arguments (required first; every document tool also takes `document`).
 
 - `add_text_layer` — Adds a live text layer: point text as big as its text, or paragraph text wrapping in style.box_size, with its box's 'anchor' point at (x, y). — `text`, `x`, `y`; optional `anchor`, `max_width`, `name`, `style`
 - `set_text` — Replaces a text layer's text, keeping its style. — `layer`, `text`
-- `set_text_style` — Changes a text layer's style fields, in the form get_layer reports under text: font_name, font_size, color, alignment, tracking, leading, box_size (null makes point text), horizontal_scale, content. — `layer`, `style`
+- `set_text_style` — Patches a live text layer's style; optional color_runs, font_runs and size_runs use UTF-16 offsets. — `layer`, `style`
 - `fit_text` — Shrinks a point-text layer's type (never grows it) to the largest size, in 0.1 px steps, whose text is at most max_width document pixels wide. — `layer`, `max_width`
 - `get_text_metrics` — Measures a text layer, or 'text' in a 'style', as Compositor lays it out. — optional `layer`, `style`, `text`
 - `list_fonts` — Lists installed fonts by family: postscript_name (what font_name takes), family, style, weight and italic, filtered by query; total and truncated say what limit left out. — optional `limit`, `query`

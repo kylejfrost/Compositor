@@ -353,7 +353,7 @@ struct PSDSmartObjectTests {
         let manifest = try String(contentsOf: url.appendingPathComponent("manifest.json"), encoding: .utf8)
         #expect(manifest.contains("\"smartObjectFile\"") && manifest.contains(SmartObjectPayload.digest(contents)))
         #expect(manifest.contains("\"importedSmartObject\""))
-        #expect(ProjectManifest.current == 11)
+        #expect(ProjectManifest.current == 13)
 
         let reopened = EditorSession()
         reopened.installProject(try await ProjectStore.shared.load(from: url), from: url)

@@ -9,7 +9,7 @@ Compositor is a native macOS image editor (SwiftUI and AppKit, Swift 5 language 
 26.5+) built around a Photoshop-style layer model. Three things set it apart and shape most
 changes: an **embedded MCP server** that lets agents drive the same document model and undo
 stack as the UI, a **PSD reader** that keeps everything a Photoshop file holds so it can be
-written back, and the **`.comp` package format** (version 11) that stores all of it.
+written back, and the **`.comp` package format** (version 13) that stores all of it.
 
 Read this file first, then only the reference your change needs:
 

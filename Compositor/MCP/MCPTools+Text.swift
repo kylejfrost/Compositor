@@ -26,7 +26,7 @@ extension MCPToolRegistry {
              ],
              required: ["layer", "text"], effect: .additive(idempotent: true), handler: setText),
         tool("set_text_style", title: "Set text style",
-             description: "Changes a text layer's style fields, in the form get_layer reports under text: font_name, font_size, color, alignment, tracking, leading, box_size (null makes point text), horizontal_scale, content. Point text keeps its anchor, paragraph text its box's top-left. An unknown or out-of-range field fails naming it.",
+             description: "Patches a live text layer's style; optional color_runs, font_runs and size_runs use UTF-16 offsets.",
              properties: [
                  "layer": MCPSchema.layerSelector("The text layer"),
                  "style": textStyleSchema(withContent: true),
@@ -537,6 +537,23 @@ extension MCPToolRegistry {
                 required: ["width", "height"],
                 description: "Paragraph text: the box it wraps in, padding included. null: point text.")),
             "horizontal_scale": MCPSchema.nullable(MCPSchema.num("Width stretch; null is 1.", min: 0.1, max: 10)),
+            "color_runs": MCPSchema.arr("Optional per-range colors. Ranges use zero-based UTF-16 offsets; fields are location, length, red, green and blue.",
+                items: MCPSchema.object(["location": MCPSchema.int("UTF-16 start offset.", min: 0),
+                                "length": MCPSchema.int("UTF-16 range length.", min: 1),
+                                "red": MCPSchema.num("Red component.", min: 0, max: 1),
+                                "green": MCPSchema.num("Green component.", min: 0, max: 1),
+                                "blue": MCPSchema.num("Blue component.", min: 0, max: 1)],
+                               required: ["location", "length", "red", "green", "blue"]), maxItems: 100_000),
+            "font_runs": MCPSchema.arr("Optional per-range font faces. Ranges use zero-based UTF-16 offsets; fields are location, length and font_name.",
+                items: MCPSchema.object(["location": MCPSchema.int("UTF-16 start offset.", min: 0),
+                                "length": MCPSchema.int("UTF-16 range length.", min: 1),
+                                "font_name": MCPSchema.str("PostScript font name.")],
+                               required: ["location", "length", "font_name"]), maxItems: 100_000),
+            "size_runs": MCPSchema.arr("Optional per-range font sizes in pixels. Ranges use zero-based UTF-16 offsets; fields are location, length and font_size.",
+                items: MCPSchema.object(["location": MCPSchema.int("UTF-16 start offset.", min: 0),
+                                "length": MCPSchema.int("UTF-16 range length.", min: 1),
+                                "font_size": MCPSchema.num("Font size in pixels.", min: 1, max: 2000)],
+                               required: ["location", "length", "font_size"]), maxItems: 100_000),
         ]
         if withContent { fields["content"] = MCPSchema.str("The text.") }
         return MCPSchema.object(fields, description: "Style fields; any left out keep their values.")
