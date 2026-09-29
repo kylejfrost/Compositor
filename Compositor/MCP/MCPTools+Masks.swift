@@ -69,9 +69,8 @@ extension MCPToolRegistry {
                 switch kind {
                 case .revealAll: session.addLayerMask(revealing: true)
                 case .hideAll: session.addLayerMask(revealing: false)
-                // The app's selection masks are named by their color outside the selection: black shows only it.
-                case .fromSelection: session.addMask(revealing: false)
-                case .hideSelection: session.addMask(revealing: true)
+                case .fromSelection: session.addMask(revealing: true)
+                case .hideSelection: session.addMask(revealing: false)
                 }
             }
             guard currentMask(of: layer, in: session) != nil else { throw cannotEditPixels(layer, session, guard: "can_edit_layers") }

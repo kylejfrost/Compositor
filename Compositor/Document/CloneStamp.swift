@@ -36,8 +36,9 @@ extension EditorSession {
 
     /// What `stroke` copies from, taken when it starts, placed `offset` document pixels from where it paints: the
     /// layer's own pixels, at their own resolution; or, sampling all layers, the canvas as it shows them.
-    func cloneSample(_ document: CanvasDocument, for stroke: BrushStroke, offset: CGSize) -> (image: CGImage, placed: CGRect, inGrid: Bool)? {
-        guard cloneSettings.sampleAllLayers else {
+    func cloneSample(_ document: CanvasDocument, for stroke: BrushStroke, offset: CGSize,
+                     sampleAll: Bool? = nil) -> (image: CGImage, placed: CGRect, inGrid: Bool)? {
+        guard sampleAll ?? cloneSettings.sampleAllLayers else {
             guard let image = stroke.layer.asset?.image else { return nil }
             return (image, stroke.gridRect(stroke.sourceRect, copyingFrom: offset), true)
         }

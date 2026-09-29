@@ -117,12 +117,13 @@ extension EditorSession {
         let stroke = try makeRasterEdit(for: layer, settings: tip, mask: mask)
         switch mode {
         case .clone(let source, let sampleAll):
-            guard let sample = cloneSample(document, layer: layer, sampleAll: sampleAll) else { throw ExportError.render }
+            let offset = CGSize(width: (source.x - first.x).rounded(), height: (source.y - first.y).rounded())
+            guard let sample = cloneSample(document, for: stroke, offset: offset, sampleAll: sampleAll) else { throw ExportError.render }
             // The first point copies from the source, and the stroke keeps that whole-pixel offset.
-            stroke.clone = (sample, CGSize(width: (source.x - first.x).rounded(), height: (source.y - first.y).rounded()))
+            stroke.clone = sample
         case .blur:
-            guard let sample = blurSample(document, mask: mask, layer: layer, diameter: tip.diameter) else { throw ExportError.render }
-            stroke.clone = (sample, .zero)
+            guard let sample = blurSample(for: stroke, diameter: tip.diameter) else { throw ExportError.render }
+            stroke.clone = sample
             stroke.isBlur = true
         default:
             break

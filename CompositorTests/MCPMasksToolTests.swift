@@ -85,7 +85,7 @@ import MCP
         // from_selection shows only the selection; the selection is used up in the same step.
         let count = session.history.undoCount
         try await MCPTestSupport.call("add_layer_mask", ["layer": "Layer 1", "kind": "from_selection"], in: workspace)
-        #expect(session.history.undoCount == count + 1 && session.history.undoName == "Add Mask from Selection")
+        #expect(session.history.undoCount == count + 1 && session.history.undoName == "Reveal Selection")
         #expect(session.selection == nil)
         rendered = try await render(session)
         #expect(try alpha(rendered, x: 10, y: 10) == 255 && alpha(rendered, x: 50, y: 10) == 0)
@@ -96,7 +96,7 @@ import MCP
         try await MCPTestSupport.call("add_layer_mask", ["layer": "Layer 1", "kind": "hide_selection"], in: workspace)
         rendered = try await render(session)
         #expect(try alpha(rendered, x: 10, y: 10) == 0 && alpha(rendered, x: 50, y: 10) == 255)
-        #expect(session.history.undoName == "Add Mask from Selection" && session.selection == nil)
+        #expect(session.history.undoName == "Hide Selection" && session.selection == nil)
     }
 
     @Test func addLayerMaskRefusesWithoutAnEdit() async throws {

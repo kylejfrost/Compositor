@@ -505,8 +505,8 @@ import MCP
         #expect(session.history.undoCount == before + 1 && session.history.undoName == "Replace Pixels")
         #expect(kept["pixel_width"] == .int(10))
 
-        // keep_origin: its own size from the same top-left; the layer's mask stays where it was on the document.
-        // A mask from a selection hides the selected right half of the layer's box, x 32–42.
+        // keep_origin: its own size from the same top-left; a Reveal Selection mask stays where it was on the document.
+        // The new pixels are left of the selected region, so the black mask outside the selection hides them.
         try await MCPTestSupport.call("select_rect", ["rect": ["x": 32, "y": 11, "width": 10, "height": 10]], in: workspace)
         session.selectLayer(id)
         session.addMask(revealing: true)
@@ -515,11 +515,11 @@ import MCP
                                       in: workspace)
         #expect(layer(session, id)?.transform == LayerTransform(origin: CGPoint(x: 22, y: 11), size: CGSize(width: 10, height: 10)))
         #expect(layer(session, id)?.mask?.placement == LayerTransform(origin: CGPoint(x: 22, y: 11), size: CGSize(width: 20, height: 10)))
-        // Stretched over the new box instead, the mask would hide x 27–32.
+        // Stretched over the new box instead, the selected half would reveal these pixels.
         rendered = try await render(session)
         let left = try pixel(rendered, x: 25, y: 15), right = try pixel(rendered, x: 28, y: 15)
-        #expect(left == [0, 0, 255, 255], "\(left)")
-        #expect(right == [0, 0, 255, 255], "\(right)")
+        #expect(left == [0, 0, 0, 0], "\(left)")
+        #expect(right == [0, 0, 0, 0], "\(right)")
 
         // natural: its own size, upright, centered where the layer was.
         let chip = try index(session, id)

@@ -5,14 +5,14 @@ extension EditorSession {
     /// What a Blur stroke paints: the layer's own pixels (or, painting the mask, its mask), softened by an amount
     /// that follows the brush size on the canvas, at the layer's own resolution. It is taken when the stroke starts,
     /// so going over an area again in a new stroke softens it further, as in Photoshop.
-    func blurSample(for stroke: BrushStroke) -> (image: CGImage, placed: CGRect, inGrid: Bool)? {
+    func blurSample(for stroke: BrushStroke, diameter: CGFloat? = nil) -> (image: CGImage, placed: CGRect, inGrid: Bool)? {
         let layer = stroke.layer
         guard let image = stroke.isMask ? layer.mask?.asset.image : layer.asset?.image else { return nil }
         // The canvas's softening, carried into the layer's pixels: wider there when the layer is scaled down.
         let map = stroke.pixelToDocument
         let perPixel = max(1e-6, abs(map.a * map.d - map.b * map.c).squareRoot())
         let sidePixels = max(stroke.sourceRect.width, stroke.sourceRect.height)
-        let sigma = min(min(30, max(1.5, Double(brushSettings.diameter) / 10)) / perPixel, sidePixels / 2)
+        let sigma = min(min(30, max(1.5, Double(diameter ?? brushSettings.diameter) / 10)) / perPixel, sidePixels / 2)
         // Room for the blur to spread past the pixels' edges, as it does on the canvas.
         let margin = ceil(3 * sigma)
         let region = stroke.sourceRect.insetBy(dx: -margin, dy: -margin)
