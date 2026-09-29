@@ -1,6 +1,6 @@
 # Compositor tool atlas
 
-Generated from Compositor's `tools/list` by `scripts/tool-atlas.py`; do not edit by hand. 128 tools in 17 groups. Each parameter row gives its type, whether it is required, its default and what it allows; `a.b` rows are members of object `a`, `a[].b` members of the objects in array `a`. Effect comes from the tool's annotations: read-only tools change nothing, additive ones only add (and are undoable), destructive ones can replace or discard something.
+Generated from Compositor's `tools/list` by `scripts/tool-atlas.py`; do not edit by hand. 129 tools in 17 groups. Each parameter row gives its type, whether it is required, its default and what it allows; `a.b` rows are members of object `a`, `a[].b` members of the objects in array `a`. Effect comes from the tool's annotations: read-only tools change nothing, additive ones only add (and are undoable), destructive ones can replace or discard something.
 
 When a call's schema and this file disagree, the server is right: regenerate with `python3 scripts/tool-atlas.py` from the compositor skill's folder while Compositor's MCP server runs.
 
@@ -13,7 +13,7 @@ When a call's schema and this file disagree, the server is right: regenerate wit
 - [Transforms and alignment](#transforms-and-alignment) (9): `move_layer`, `set_layer_transform`, `set_layer_scale`, `scale_layer_to_fit`, `rotate_layer`, `flip_layer`, `distort_layer`, `align_layers`, `distribute_layers`
 - [Canvas and guides](#canvas-and-guides) (10): `resize_canvas`, `resize_image`, `set_resolution`, `crop`, `trim_canvas`, `flip_canvas`, `add_guide`, `remove_guide`, `clear_guides`, `list_guides`
 - [Text and fonts](#text-and-fonts) (7): `add_text_layer`, `set_text`, `set_text_style`, `fit_text`, `get_text_metrics`, `list_fonts`, `check_fonts`
-- [Shapes](#shapes) (2): `add_shape`, `set_shape_style`
+- [Shapes](#shapes) (3): `add_solid_fill`, `add_shape`, `set_shape_style`
 - [Smart objects](#smart-objects) (4): `place_smart_object`, `replace_smart_object_contents`, `get_smart_object_info`, `export_smart_object_contents`
 - [Layer effects](#layer-effects) (4): `set_layer_effects`, `add_layer_effect`, `remove_layer_effect`, `set_layer_effect_enabled`
 - [Adjustment layers and profiles](#adjustment-layers-and-profiles) (4): `add_adjustment_layer`, `set_adjustment`, `list_profiles`, `import_profile`
@@ -996,6 +996,18 @@ Checks PostScript font names: whether each is available, or the substitute drawn
 | `names` | array of string |  |  | 1–200 items | PostScript names. |
 
 ## Shapes
+
+### `add_solid_fill` — Add solid fill
+
+**Effect:** additive
+
+Adds an editable solid-color fill across the whole canvas. It is a live rectangle shape, so set_shape_style can change its color; masks, opacity, blending and effects work as for other layers.
+
+| Parameter | Type | Required | Default | Allowed | Description |
+|---|---|---|---|---|---|
+| `document` | integer ≥ 0 \| string |  |  |  | Default: the current tab. |
+| `color` | object {r, g, b} \| string `^#[0-9A-Fa-f]{6}$` \| one of `foreground`, `background` |  |  |  | The fill color. Defaults to the foreground color. {r, g, b} in 0–1, "#rrggbb", "foreground" or "background". |
+| `name` | string |  |  |  | Layer name. Defaults to 'Solid Color Fill N'. |
 
 ### `add_shape` — Add shape
 

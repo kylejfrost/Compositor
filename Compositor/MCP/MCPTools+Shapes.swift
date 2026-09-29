@@ -6,6 +6,13 @@ import MCP
 
 extension MCPToolRegistry {
     static let shapeTools: [MCPToolEntry] = [
+        tool("add_solid_fill", title: "Add solid fill",
+             description: "Adds an editable solid-color fill across the whole canvas. It is a live rectangle shape, so set_shape_style can change its color; masks, opacity, blending and effects work as for other layers.",
+             properties: [
+                 "color": colorSchema("The fill color. Defaults to the foreground color."),
+                 "name": MCPSchema.str("Layer name. Defaults to 'Solid Color Fill N'."),
+             ],
+             effect: .additive(idempotent: false), handler: addSolidFill),
         tool("add_shape", title: "Add shape",
              description: "Adds a live shape layer: a rectangle or ellipse filling rect, or a line from start to end, in color (default the foreground). corner_radius rounds a rectangle, line_width sets a line's thickness, and stroke outlines a rectangle or ellipse, growing the layer's box. Returns the id, transform and shape.",
              properties: [
@@ -36,6 +43,27 @@ extension MCPToolRegistry {
     static let maxShapeSize: Double = 5000
 
     // MARK: Handlers
+
+    static func addSolidFill(_ ctx: MCPCallContext) throws -> CallTool.Result {
+        let session = ctx.session
+        let document = try ctx.editableDocument()
+        let color = try ctx.args["color"].map { try colorArgument($0, field: "color", session: session) } ?? session.foregroundColor
+        let name = try ctx.args.optionalString("name") ?? nextSolidFillName(in: document)
+        let id = try addLayerInOneStep(ctx, document: document, editName: "Solid Color Fill", name: name) {
+            try shapeFailures {
+                try session.addShapeLayer(.rectangle, rect: CGRect(origin: .zero, size: document.size), color: color,
+                                          cornerRadius: 0, lineWidth: 4, ends: nil)
+            }
+        }
+        return try shapeLayerResult(id, ctx)
+    }
+
+    private static func nextSolidFillName(in document: CanvasDocument) -> String {
+        let names = Set(document.layers.map(\.name))
+        var number = 1
+        while names.contains("Solid Color Fill \(number)") { number += 1 }
+        return "Solid Color Fill \(number)"
+    }
 
     static func addShape(_ ctx: MCPCallContext) throws -> CallTool.Result {
         let kind = try shapeKind(ctx)

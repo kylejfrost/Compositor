@@ -582,26 +582,26 @@ struct PSDWriterRoundTripTests {
     }
 
     @Test func aLayerClippedToAFillOrAdjustmentLayerKeepsItsClippingUntilItsBaseChanges() throws {
-        var fill = PSDRecord(id: UUID(), name: "Solid")
-        fill.extras = PSDLayerExtras(blocks: [PSDTaggedBlock(key: "SoCo", data: try #require(PSDVectorFixtures.rectangle()["SoCo"]))])
+        var fill = PSDRecord(id: UUID(), name: "Gradient")
+        fill.extras = PSDLayerExtras(blocks: [PSDTaggedBlock(key: "GdFl", data: Data(count: 8))])
         let (session, file) = try opened(PSDDocument(width: 4, height: 4, resolution: 72, layers: [
             fill, try raster("Over fill", clipped: true), levelsRecord("Levels"), try raster("Over levels", clipped: true)
         ]))
         let layers = try #require(session.document?.layers)
-        #expect(layers.map(\.name) == ["Solid", "Over fill", "Levels", "Over levels"])
-        #expect(layers[0].psdExtras?.placeholder == "fill:SoCo" && layers[2].adjustment != nil)
+        #expect(layers.map(\.name) == ["Gradient", "Over fill", "Levels", "Over levels"])
+        #expect(layers[0].psdExtras?.placeholder == "fill:GdFl" && layers[2].adjustment != nil)
         #expect(layers.allSatisfy { $0.maskSourceID == nil })
         let original = try Layout(file)
         let (layout, _, report) = try written(session)
         #expect(layout.records.map(\.clipping) == original.records.map(\.clipping))
         #expect(layout.records.map(\.clipping) == [0, 1, 0, 1])
         // The fill is drawn by Photoshop only, so the merged image leaves it out.
-        #expect(report.warnings.map(\.layerName) == ["Solid"])
+        #expect(report.warnings.map(\.layerName) == ["Gradient"])
         // Photoshop draws it from the layer: a note, not a lossy change.
         #expect(report.warnings.map(\.lossy) == [false])
 
         // Without the fill below it, the layer has nothing to clip to and is written unclipped.
-        session.document?.layers.removeAll { $0.name == "Solid" }
+        session.document?.layers.removeAll { $0.name == "Gradient" }
         #expect(try written(session).layout.records.map(\.clipping) == [0, 0, 1])
     }
 
@@ -612,14 +612,14 @@ struct PSDWriterRoundTripTests {
         var folderRecord = PSDRecord(id: folderID, name: "Folder")
         folderRecord.isGroup = true
         folderRecord.isVisible = false
-        var fill = PSDRecord(id: UUID(), parentID: folderID, name: "Solid")
-        fill.extras = PSDLayerExtras(blocks: [PSDTaggedBlock(key: "SoCo", data: try #require(PSDVectorFixtures.rectangle()["SoCo"]))])
+        var fill = PSDRecord(id: UUID(), parentID: folderID, name: "Gradient")
+        fill.extras = PSDLayerExtras(blocks: [PSDTaggedBlock(key: "GdFl", data: Data(count: 8))])
         let (session, _) = try opened(PSDDocument(width: 4, height: 4, resolution: 72, layers: [folderRecord, fill]))
-        #expect(session.document?.layers.first { $0.name == "Solid" }?.psdExtras?.placeholder == "fill:SoCo")
+        #expect(session.document?.layers.first { $0.name == "Gradient" }?.psdExtras?.placeholder == "fill:GdFl")
         #expect(try written(session).report.warnings.isEmpty)
         let index = try #require(session.document?.layers.firstIndex { $0.name == "Folder" })
         session.document?.layers[index].isVisible = true
-        #expect(try written(session).report.warnings.map(\.layerName) == ["Solid"])
+        #expect(try written(session).report.warnings.map(\.layerName) == ["Gradient"])
     }
 
     /// Releasing a clip Compositor modeled (a drag out of the clipping group, deleting the base, Release Clipping

@@ -54,7 +54,7 @@ DOMAINS = [
         "remove_guide", "clear_guides", "list_guides"]),
     ("Text and fonts", [
         "add_text_layer", "set_text", "set_text_style", "fit_text", "get_text_metrics", "list_fonts", "check_fonts"]),
-    ("Shapes", ["add_shape", "set_shape_style"]),
+    ("Shapes", ["add_solid_fill", "add_shape", "set_shape_style"]),
     ("Smart objects", [
         "place_smart_object", "replace_smart_object_contents", "get_smart_object_info",
         "export_smart_object_contents"]),

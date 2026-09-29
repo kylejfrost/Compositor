@@ -63,7 +63,7 @@ import MCP
         "add_text_layer": "A", "set_text": "AI", "set_text_style": "AI", "fit_text": "AI", "get_text_metrics": "R",
         "list_fonts": "R", "check_fonts": "R",
         // Shapes
-        "add_shape": "A", "set_shape_style": "AI",
+        "add_solid_fill": "A", "add_shape": "A", "set_shape_style": "AI",
         // Smart objects
         "place_smart_object": "A", "replace_smart_object_contents": "D", "get_smart_object_info": "R",
         "export_smart_object_contents": "DI",

@@ -40,6 +40,14 @@ nonisolated enum PSDVector {
         let (stroke, drawable) = shapeStroke(strokeStyle)
         guard drawable else { return nil }
         let pathData = extra["vmsk"] ?? extra["vsms"]
+        // A standalone Photoshop Solid Color Fill layer has a `SoCo` block and no vector path: Photoshop paints it
+        // across the canvas. Model that as an editable, full-canvas rectangle so it remains visible in Compositor.
+        if pathData == nil {
+            guard extra["SoCo"] != nil, extra["vogk"] == nil, canvas.width >= 1, canvas.height >= 1 else { return nil }
+            let style = LayerShapeStyle(kind: .rectangle, red: fill.r, green: fill.g, blue: fill.b, cornerRadius: 0)
+            guard style.isValid else { return nil }
+            return (style, CGRect(origin: .zero, size: canvas))
+        }
         // An inverted mask fills around its path and a disabled one fills the whole layer: neither is the shape.
         if let pathData, pathData.count >= 8, UInt32(bitPattern: i32(pathData, 4)) & (maskInverted | maskDisabled) != 0 {
             return nil

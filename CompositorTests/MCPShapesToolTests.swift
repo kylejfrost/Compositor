@@ -62,6 +62,24 @@ import MCP
 
     // MARK: add_shape
 
+    @Test func addSolidFillCoversTheCanvasAndCanBeRestyled() async throws {
+        let workspace = MCPTestSupport.workspace(width: 24, height: 16)
+        let session = workspace.current.session
+        let before = session.history.undoCount
+        let result = try await MCPTestSupport.call("add_solid_fill", ["color": "#336699"], in: workspace)
+        let id = try self.id(result)
+        let added = try #require(layer(session, id))
+        #expect(added.name == "Solid Color Fill 1")
+        #expect(added.liveShape?.style.color == PaletteColor(red: 0x33 / 255, green: 0x66 / 255, blue: 0x99 / 255))
+        #expect(added.transform == LayerTransform(origin: .zero, size: CGSize(width: 24, height: 16)))
+        #expect(session.history.undoCount == before + 1 && recorded(result) == true)
+        let pixel = try await pixels(session)
+        #expect(pixel(0, 0) == [51, 102, 153, 255] && pixel(23, 15) == [51, 102, 153, 255])
+        try await MCPTestSupport.call("set_shape_style", ["layer": .string(id.uuidString), "color": .string("#ff0000")], in: workspace)
+        let restyled = try await pixels(session)
+        #expect(restyled(12, 8) == [255, 0, 0, 255])
+    }
+
     @Test func addShapeRoundsARectanglesCornersAsOneStep() async throws {
         let workspace = clearWorkspace()
         let session = workspace.current.session

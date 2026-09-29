@@ -164,7 +164,7 @@ enum MCPToolRegistry {
     get_app_info.features.photoshop_save is true a .psd is a working Photoshop file (pass allow_lossy to accept \
     rasterized parts; read the warnings).
 
-    Also: selections (select_rect, select_subject, modify_selection); painting and filters on a layer or its mask \
+    Also: fills (add_solid_fill); selections (select_rect, select_subject, modify_selection); painting and filters on a layer or its mask \
     (stroke_path, fill_selection, draw_gradient, apply_filter, apply_levels); masks (add_layer_mask); effects \
     (set_layer_effects); adjustment layers (add_adjustment_layer, set_adjustment); creative profiles (list_profiles, \
     then kind profile); shapes (add_shape); smart objects (place_smart_object); canvas and guides (resize_canvas, \

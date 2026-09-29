@@ -564,6 +564,36 @@ struct PSDVectorWriterTests {
 
     // MARK: Imported shapes
 
+    @Test func standaloneSolidFillStaysAsItsOriginalDescriptorUntilEdited() throws {
+        let solidColor = PSDDescriptorWriter.block(PSDDescriptor(classID: "null", items: [
+            ("Clr ", .object(PSDDescriptor(classID: "RGBC", items: [
+                ("Rd  ", .double(51)), ("Grn ", .double(102)), ("Bl  ", .double(153)),
+            ]))),
+        ]))
+        var fill = PSDRecord(id: UUID(), name: "Backdrop")
+        fill.extras = PSDLayerExtras(blocks: [PSDTaggedBlock(key: "SoCo", data: solidColor)])
+        let context = try BrushRaster.context(width: 16, height: 12, mask: false)
+        let file = try PSDFixture.data(PSDDocument(width: 16, height: 12, resolution: 72, layers: [fill]),
+                                       composite: try #require(context.makeImage()))
+        let imported = try PSDDocumentBuilder.makeImport(try PSDReader.read(file))
+        let layer = try #require(imported.layers.first)
+        #expect(layer.liveShape?.style.color == PaletteColor(red: 0.2, green: 0.4, blue: 0.6))
+        #expect(layer.transform == LayerTransform(origin: .zero, size: CGSize(width: 16, height: 12)))
+
+        let session = EditorSession()
+        try session.insertPhotoshop(imported, named: "Solid Fill")
+        let untouched = try record("Backdrop", in: planned(session))
+        #expect(block(untouched, "SoCo") == solidColor)
+        #expect(block(untouched, "vmsk") == nil)
+
+        let id = try #require(session.document?.layers.first?.id)
+        try session.updateShapeStyle(id) { $0.red = 1; $0.green = 0; $0.blue = 0 }
+        let edited = try record("Backdrop", in: planned(session))
+        #expect(block(edited, "SoCo") != solidColor && block(edited, "vmsk") != nil)
+        let reopened = try #require(try reread(session).layers.first?.shape)
+        #expect(reopened.color == PaletteColor(red: 1, green: 0, blue: 0))
+    }
+
     /// An imported shape nobody touched is written back exactly as Photoshop stored it.
     @Test func anUntouchedImportedShapeKeepsItsBlocksByteForByte() throws {
         let (session, file) = try openedPhotoshopShape()

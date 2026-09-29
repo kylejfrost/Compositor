@@ -533,14 +533,11 @@ struct PSDAdjustmentWriterTests {
         try check(reopened, keeps: false)
     }
 
-    /// A fill layer (Solid Color, Gradient or Pattern) without a vector mask, which Compositor keeps only to write
-    /// back, fills whatever canvas it is on: unlike a vector mask (`vmsk`, `vsms`, `vogk`), its block holds no place
-    /// on the file's canvas. So Flip Canvas, Canvas Size, or a copy into a project of another size leave it byte for
-    /// byte, with no lossy warning (only the merged image's note that Compositor doesn't draw it).
-    @Test(arguments: ["SoCo", "GdFl", "PtFl"])
+    /// Unsupported gradient and pattern fills have no vector mask to record a canvas position, so they remain
+    /// placeholders and their blocks stay byte for byte through canvas changes and copies into another project.
+    @Test(arguments: ["GdFl", "PtFl"])
     func aFillLayerKeepsItsFillWhereverTheCanvasGoes(key: String) async throws {
-        // Compositor keeps a fill block without reading it, so the solid color's descriptor stands in for all three.
-        let fill = try #require(PSDVectorFixtures.rectangle()["SoCo"])
+        let fill = Data(count: 8)
         var fillRecord = PSDRecord(id: UUID(), name: "Fill")
         fillRecord.extras = PSDLayerExtras(blocks: [PSDTaggedBlock(key: key, data: fill)])
         let workspace = ProjectWorkspace()

@@ -634,6 +634,7 @@ then its arguments (required first; every document tool also takes `document`).
 
 **Shapes**
 
+- `add_solid_fill` — Adds an editable solid-color fill across the whole canvas. — optional `color`, `name`
 - `add_shape` — Adds a live shape layer: a rectangle or ellipse filling rect, or a line from start to end, in color (default the foreground). — `kind`; optional `color`, `corner_radius`, `end`, `line_width`, `name`, `rect`, `start`, `stroke`
 - `set_shape_style` — Changes a live shape layer's color, corner_radius, line_width or stroke (patched; null removes it). — `layer`; optional `color`, `corner_radius`, `line_width`, `stroke`
 

@@ -314,11 +314,11 @@ nonisolated enum PSDDocumentBuilder {
 
     /// The placeholder tag of a layer Compositor keeps only to write back: `adjustment:<key>` for an adjustment
     /// layer whose kind it can't apply (or whose settings it couldn't read), `fill:<key>` for a fill layer (solid
-    /// color, gradient or pattern) with no vector data. Nil for every other layer; a shape's `SoCo` is its fill.
+    /// color, gradient or pattern) with no vector data. A `SoCo` layer parsed as a full-canvas solid fill is editable.
     private static func placeholderTag(for record: PSDRecord) -> String? {
         guard !record.isGroup, record.adjustment == nil, let blocks = record.extras?.blocks else { return nil }
         if let key = blocks.first(where: { PSDReader.adjustmentKeys.contains($0.key) })?.key { return "adjustment:\(key)" }
-        guard !blocks.contains(where: { PSDReader.vectorKeys.contains($0.key) }),
+        guard record.shape == nil, !blocks.contains(where: { PSDReader.vectorKeys.contains($0.key) }),
               let key = blocks.first(where: { PSDReader.fillKeys.contains($0.key) })?.key else { return nil }
         return "fill:\(key)"
     }

@@ -307,8 +307,9 @@ struct PSDRoundTripTests {
         #expect(!session.canPaint)
     }
 
-    /// Fill layers without vector data and `clrL` adjustments are placeholders too; a shape's `SoCo` stays its fill.
-    @Test func fillLayersAndColorLookupsBecomePlaceholders() throws {
+    /// Standalone `SoCo` fills become editable full-canvas shapes; unsupported gradient/pattern fills and `clrL`
+    /// adjustments remain hidden placeholders, while a vector shape keeps its own fill and outline.
+    @Test func solidFillLayersBecomeEditableAndOtherFillLayersStayPlaceholders() throws {
         let fill = try colorImage(width: 2, height: 2, red: 1, green: 0, blue: 0)
         var base = PSDRecord(id: UUID(), name: "Base")
         base.bounds = CGRect(x: 0, y: 0, width: 2, height: 2)
@@ -316,7 +317,8 @@ struct PSDRoundTripTests {
         var records = [base]
         for key in ["SoCo", "GdFl", "PtFl", "clrL"] {
             var record = PSDRecord(id: UUID(), name: key)
-            record.extras = PSDLayerExtras(blocks: [PSDTaggedBlock(key: key, data: Data(count: 8))])
+            let block = key == "SoCo" ? solidColor(red: 0, green: 0, blue: 255) : Data(count: 8)
+            record.extras = PSDLayerExtras(blocks: [PSDTaggedBlock(key: key, data: block)])
             records.append(record)
         }
         var shape = PSDRecord(id: UUID(), name: "Shape")
@@ -327,7 +329,10 @@ struct PSDRoundTripTests {
         let data = try PSDFixture.data(PSDDocument(width: 8, height: 8, resolution: 72, layers: records), composite: fill)
         let imported = try PSDDocumentBuilder.makeImport(try PSDReader.read(data))
         #expect(imported.layers.map(\.name) == ["Base", "SoCo", "GdFl", "PtFl", "clrL", "Shape"])
-        #expect(imported.layers.map { $0.psdExtras?.placeholder } == [nil, "fill:SoCo", "fill:GdFl", "fill:PtFl", "adjustment:clrL", nil])
+        #expect(imported.layers.map { $0.psdExtras?.placeholder } == [nil, nil, "fill:GdFl", "fill:PtFl", "adjustment:clrL", nil])
+        let solidFill = try #require(imported.layers[1].liveShape)
+        #expect(solidFill.style.kind == .rectangle && solidFill.style.blue == 1)
+        #expect(imported.layers[1].transform == LayerTransform(origin: .zero, size: CGSize(width: 8, height: 8)))
         #expect(imported.layers.filter(\.isPhotoshopPlaceholder).allSatisfy { !$0.isVisible && $0.asset == nil })
         #expect(imported.layers.last?.asset != nil)
 
@@ -338,7 +343,7 @@ struct PSDRoundTripTests {
         let placeholdersOnTop = EditorSession()
         try placeholdersOnTop.insertPhotoshop(PSDImport(width: 8, height: 8, resolution: 72,
                                                         layers: Array(imported.layers.dropLast()), conversions: []), named: "Fills")
-        #expect(placeholdersOnTop.activeLayerID == imported.layers.first?.id)
+        #expect(placeholdersOnTop.activeLayerID == imported.layers[1].id)
     }
 
     /// Merging never takes a placeholder with it: Merge Down onto or from one, a selection holding one, or a
